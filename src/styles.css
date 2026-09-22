@@ -1,0 +1,197 @@
+/* Functional styles for the engineering milestones. The visual design comes later (roadmap step 12). */
+
+:root {
+  --bg: #fbfbfa;
+  --fg: #1c1d1f;
+  --muted: #5b5f64;
+  --line: #d6d8db;
+  --focus: #1f5fd1;
+  --error: #b3261e;
+  --notice: #8a5a00;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151618;
+    --fg: #e9eaeb;
+    --muted: #a3a7ac;
+    --line: #383b3f;
+    --focus: #7aa7ff;
+    --error: #ff8a80;
+    --notice: #f2c46d;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #151618;
+  --fg: #e9eaeb;
+  --muted: #a3a7ac;
+  --line: #383b3f;
+  --focus: #7aa7ff;
+  --error: #ff8a80;
+  --notice: #f2c46d;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 3rem 16px;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0 0 2rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem;
+}
+
+p {
+  margin: 0 0 1rem;
+}
+
+button,
+.button {
+  display: inline-block;
+  font: inherit;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--fg);
+  border-radius: 6px;
+  background: var(--fg);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+}
+
+:focus-visible,
+.button:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.drop {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.drop.dragging {
+  border-color: var(--focus);
+}
+
+.file {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.file-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.file-size,
+.hint {
+  color: var(--muted);
+}
+
+.share {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.share input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.route {
+  font-weight: 600;
+}
+
+.notice {
+  color: var(--notice);
+}
+
+.error {
+  color: var(--error);
+}
+
+.progress {
+  margin: 0 0 1rem;
+}
+
+.progress progress {
+  width: 100%;
+  height: 0.75rem;
+  accent-color: var(--fg);
+}
+
+.progress-text {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.success {
+  font-weight: 600;
+}
+
+.connection-details {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.connection-details summary {
+  cursor: pointer;
+}
+
+.connection-details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.connection-details dd {
+  margin: 0;
+}
