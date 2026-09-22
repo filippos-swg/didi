@@ -174,3 +174,24 @@ button.secondary {
 .success {
   font-weight: 600;
 }
+
+.connection-details {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.connection-details summary {
+  cursor: pointer;
+}
+
+.connection-details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.connection-details dd {
+  margin: 0;
+}

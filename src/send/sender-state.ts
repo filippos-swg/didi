@@ -1,6 +1,7 @@
 // The sender's state machine. A pure function: the SenderSession performs the
 // side effects and reports what happened as events.
 
+import type { ConnectionReport } from "../net/connection-report.ts";
 import type { Route } from "../net/peer.ts";
 
 export interface FileInfo {
@@ -32,7 +33,7 @@ interface Shared {
 export type SenderState =
   | { phase: "idle"; rejected: FileInfo | null }
   | { phase: "registering"; file: FileInfo }
-  | ({ phase: "waiting"; notice: SenderNotice | null } & Shared)
+  | ({ phase: "waiting"; notice: SenderNotice | null; report: ConnectionReport | null } & Shared)
   | ({ phase: "connecting" } & Shared)
   | ({ phase: "connected"; route: Route } & Shared)
   | ({ phase: "sending"; route: Route; delivered: number; bytesPerSecond: number | null } & Shared)
@@ -49,7 +50,7 @@ export type SenderEvent =
   | { type: "accepted" }
   | { type: "progress"; delivered: number; bytesPerSecond: number | null }
   | { type: "delivered" }
-  | { type: "peer-lost"; notice: SenderNotice }
+  | { type: "peer-lost"; notice: SenderNotice; report: ConnectionReport | null }
   | { type: "fatal"; error: SenderError }
   | { type: "reset" };
 
@@ -70,7 +71,7 @@ export function senderReducer(state: SenderState, event: SenderEvent): SenderSta
     case "file-chosen":
       return state.phase === "idle" ? { phase: "registering", file: event.file } : state;
     case "hosting":
-      if (state.phase === "registering") return { phase: "waiting", file: state.file, link: event.link, online: true, notice: null };
+      if (state.phase === "registering") return { phase: "waiting", file: state.file, link: event.link, online: true, notice: null, report: null };
       // Reclaimed after a reconnect: same session, same link.
       return "online" in state && !state.online ? { ...state, online: true } : state;
     case "signal-down":
@@ -87,7 +88,7 @@ export function senderReducer(state: SenderState, event: SenderEvent): SenderSta
       return state.phase === "sending" ? { phase: "delivered", file: state.file, route: state.route } : state;
     case "peer-lost":
       return state.phase === "connecting" || state.phase === "connected" || state.phase === "sending"
-        ? { phase: "waiting", ...shared(state), notice: event.notice }
+        ? { phase: "waiting", ...shared(state), notice: event.notice, report: event.report }
         : state;
   }
 }

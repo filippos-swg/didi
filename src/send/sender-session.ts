@@ -3,6 +3,7 @@
 
 import { createHostKey } from "../../shared/session-id.ts";
 import { CLOSE_SESSION_ENDED, type IceServer, type ServerMessage } from "../../shared/signal-protocol.ts";
+import type { ConnectionReport } from "../net/connection-report.ts";
 import { PeerLink } from "../net/peer.ts";
 import { connectSignal, type SignalConnection } from "../net/signal-client.ts";
 import { Store } from "../store.ts";
@@ -140,11 +141,11 @@ export class SenderSession {
   private connectToRecipient(): void {
     const peer = new PeerLink("offerer", this.iceServers, {
       sendSignal: (data) => this.signal?.send({ type: "signal", data }),
-      onFailure: (reason, wasConnected) => {
+      onFailure: (reason, wasConnected, report) => {
         if (this.attempt !== attempt) return;
         // A running transfer knows more (the recipient may have said why), so it reports.
         if (attempt.transfer !== null) attempt.transfer.connectionLost();
-        else this.endAttempt(attempt, wasConnected ? "connection-lost" : reason === "closed" ? "recipient-left" : "connect-failed");
+        else this.endAttempt(attempt, wasConnected ? "connection-lost" : reason === "closed" ? "recipient-left" : "connect-failed", report);
       },
     });
     const attempt: Attempt = { peer, transfer: null };
@@ -189,9 +190,9 @@ export class SenderSession {
   }
 
   /** Ends one attempt; the link stays open for another. */
-  private endAttempt(attempt: Attempt, notice: SenderNotice): void {
+  private endAttempt(attempt: Attempt, notice: SenderNotice, report: ConnectionReport | null = null): void {
     this.attempt = null;
-    this.store.dispatch({ type: "peer-lost", notice });
+    this.store.dispatch({ type: "peer-lost", notice, report });
     attempt.peer.closeGracefully(); // lets a final abort reach the recipient
   }
 

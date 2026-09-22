@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type DragEvent } from "react";
 import { formatBytes } from "../format.ts";
+import { ConnectionDetails } from "../ui/ConnectionDetails.tsx";
 import { FileSummary } from "../ui/FileSummary.tsx";
 import { RouteLabel } from "../ui/RouteLabel.tsx";
 import { TransferProgress } from "../ui/TransferProgress.tsx";
@@ -45,6 +46,7 @@ function SendBody({ state, session }: { state: SenderState; session: SenderSessi
           <FileSummary file={state.file} />
           <ShareLink link={state.link} />
           {state.phase === "waiting" && state.notice !== null && <p className="notice">{noticeText(state.notice)}</p>}
+          {state.phase === "waiting" && state.report !== null && <ConnectionDetails report={state.report} other="recipient" />}
           {!state.online && state.phase === "waiting" && (
             <p className="notice">Lost contact with the didi server. Reconnecting… The link works again once this page reconnects.</p>
           )}
@@ -169,7 +171,7 @@ function noticeText(notice: SenderNotice): string {
     case "recipient-left":
       return "The recipient left before the transfer started.";
     case "connect-failed":
-      return "Couldn’t connect directly to the recipient. One of your networks may block direct connections. They can open the link again to retry.";
+      return "Couldn’t connect directly to the recipient. They can open the link again to retry.";
     case "connection-lost":
       return "The connection to the recipient dropped.";
     case "recipient-cancelled":

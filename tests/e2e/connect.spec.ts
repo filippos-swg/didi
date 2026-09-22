@@ -97,3 +97,24 @@ test("when the sender page crashes, the recipient notices within seconds", async
   void cdp.send("Page.crash").catch(() => {});
   await expect(phase(recipient)).toHaveAttribute("data-phase", "failed", { timeout: 10_000 });
 });
+
+test("a connection that can't be made explains itself on both sides", async ({ browser }) => {
+  test.setTimeout(60_000);
+  // Throw away every address the other browser sends, so no path can ever be found.
+  const blockAddresses = (page: import("@playwright/test").Page) =>
+    void page.addInitScript(() => {
+      RTCPeerConnection.prototype.addIceCandidate = () => Promise.resolve();
+    });
+  const { sender, link } = await startSending(browser, smallFile, blockAddresses);
+  const recipient = await openAsRecipient(browser, link, blockAddresses);
+
+  await expect(recipient.getByRole("alert")).toHaveText("Couldn’t connect directly to the sender.", { timeout: 30_000 });
+  // No STUN in tests, so neither browser has a public address; the explanation says so.
+  await expect(recipient.locator(".connection-details")).toContainText("Your browser couldn’t find its public internet address");
+  await recipient.getByText("Connection details").click();
+  await expect(recipient.locator(".connection-details dl")).toContainText("no connection after 20 s");
+
+  await expect(phase(sender)).toHaveAttribute("data-phase", "waiting");
+  await expect(sender.locator(".notice")).toHaveText("Couldn’t connect directly to the recipient. They can open the link again to retry.");
+  await expect(sender.locator(".connection-details")).toBeVisible();
+});

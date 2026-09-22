@@ -2,6 +2,7 @@
 // the side effects and reports what happened as events.
 
 import type { ErrorCode } from "../../shared/signal-protocol.ts";
+import type { ConnectionReport } from "../net/connection-report.ts";
 import type { Route } from "../net/peer.ts";
 import type { FileMeta } from "../transfer/protocol.ts";
 import type { SinkResult } from "../transfer/sinks.ts";
@@ -31,7 +32,7 @@ export type ReceiverState =
   | { phase: "ready"; file: FileMeta; route: Route }
   | { phase: "receiving"; file: FileMeta; route: Route; received: number; bytesPerSecond: number | null }
   | { phase: "complete"; file: FileMeta; route: Route; result: SinkResult }
-  | { phase: "failed"; error: ReceiverError };
+  | { phase: "failed"; error: ReceiverError; report: ConnectionReport | null };
 
 export type ReceiverEvent =
   | { type: "unavailable"; reason: Unavailable }
@@ -40,7 +41,7 @@ export type ReceiverEvent =
   | { type: "accepted" }
   | { type: "progress"; received: number; bytesPerSecond: number | null }
   | { type: "complete"; result: SinkResult }
-  | { type: "failed"; error: ReceiverError }
+  | { type: "failed"; error: ReceiverError; report: ConnectionReport | null }
   | { type: "retry" };
 
 export const initialReceiverState: ReceiverState = { phase: "joining" };
@@ -61,7 +62,7 @@ export function receiverReducer(state: ReceiverState, event: ReceiverEvent): Rec
       return state.phase === "receiving" ? { phase: "complete", file: state.file, route: state.route, result: event.result } : state;
     case "failed":
       return state.phase === "joining" || state.phase === "connecting" || state.phase === "ready" || state.phase === "receiving"
-        ? { phase: "failed", error: event.error }
+        ? { phase: "failed", error: event.error, report: event.report }
         : state;
     case "retry":
       return state.phase === "failed" || (state.phase === "unavailable" && state.reason !== "invalid-link") ? initialReceiverState : state;

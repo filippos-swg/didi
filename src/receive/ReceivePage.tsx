@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { FileMeta } from "../transfer/protocol.ts";
+import { ConnectionDetails } from "../ui/ConnectionDetails.tsx";
 import { FileSummary } from "../ui/FileSummary.tsx";
 import { RouteLabel } from "../ui/RouteLabel.tsx";
 import { TransferProgress } from "../ui/TransferProgress.tsx";
@@ -70,6 +71,7 @@ function ReceiveBody({ state, session }: { state: ReceiverState; session: Receiv
           <p className="error" role="alert">
             {errorText(state.error)}
           </p>
+          {state.report !== null && <ConnectionDetails report={state.report} other="sender" />}
           <RetryButton session={session} />
         </>
       );
@@ -120,7 +122,7 @@ function errorText(error: ReceiverError): string {
     case "sender-left":
       return "The sender’s page disconnected.";
     case "connect-failed":
-      return "Couldn’t connect directly to the sender. One of your networks may block direct connections.";
+      return "Couldn’t connect directly to the sender.";
     case "connection-lost":
       return "The connection to the sender dropped.";
     case "cancelled":

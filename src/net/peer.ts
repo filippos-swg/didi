@@ -2,6 +2,7 @@
 // The sender is always the offerer, so negotiation never collides.
 
 import type { IceServer, SignalData } from "../../shared/signal-protocol.ts";
+import { candidateKind, emptyCounts, type ConnectionReport } from "./connection-report.ts";
 
 export const CONNECT_TIMEOUT_MS = 20_000;
 const CHANNEL_LABEL = "didi";
@@ -19,8 +20,11 @@ export type PeerFailure =
 
 export interface PeerCallbacks {
   sendSignal(data: SignalData): void;
-  /** Called at most once, and never after close(). */
-  onFailure(reason: PeerFailure, wasConnected: boolean): void;
+  /**
+   * Called at most once, and never after close(). A connection that never
+   * opened comes with a report of what was tried.
+   */
+  onFailure(reason: PeerFailure, wasConnected: boolean, report: ConnectionReport | null): void;
 }
 
 export class PeerLink {
@@ -37,6 +41,9 @@ export class PeerLink {
   private connected = false;
   private finished = false;
   private otherPageGone = false;
+  private readonly startedAt = performance.now();
+  private readonly localCandidates = emptyCounts();
+  private readonly remoteCandidates = emptyCounts();
   private readonly timeout: ReturnType<typeof setTimeout>;
   private readonly onPageHide = () => this.finish(new Error("page closed"));
 
@@ -54,6 +61,8 @@ export class PeerLink {
     this.pc.addEventListener("icecandidate", (event) => {
       const candidate = event.candidate;
       if (candidate === null || candidate.candidate === "") return;
+      const kind = candidateKind(candidate.candidate);
+      if (kind !== null) this.localCandidates[kind]++;
       callbacks.sendSignal({
         candidate: {
           candidate: candidate.candidate,
@@ -88,6 +97,10 @@ export class PeerLink {
   }
 
   receiveSignal(data: SignalData): void {
+    if ("candidate" in data) {
+      const kind = candidateKind(data.candidate.candidate);
+      if (kind !== null) this.remoteCandidates[kind]++;
+    }
     this.enqueue(async () => {
       if ("description" in data) {
         await this.pc.setRemoteDescription(data.description);
@@ -197,8 +210,45 @@ export class PeerLink {
 
   private fail(reason: PeerFailure): void {
     if (this.finished) return;
-    this.finish(new Error(reason));
-    this.callbacks.onFailure(reason, this.connected);
+    const wasConnected = this.connected;
+    if (wasConnected || reason === "closed") {
+      this.finish(new Error(reason));
+      this.callbacks.onFailure(reason, wasConnected, null);
+      return;
+    }
+    // Never connected: read what was tried before closing, so the failure can explain itself.
+    this.finished = true;
+    clearTimeout(this.timeout);
+    this.rejectReady(new Error(reason));
+    void this.report(reason).then((report) => {
+      this.finish(new Error(reason));
+      this.callbacks.onFailure(reason, false, report);
+    });
+  }
+
+  private async report(ending: "timeout" | "failed"): Promise<ConnectionReport> {
+    let pairs: ConnectionReport["pairs"] = null;
+    try {
+      const stats = await this.pc.getStats();
+      pairs = { tried: 0, succeeded: 0, failed: 0 };
+      const counted = pairs;
+      stats.forEach((report: RTCStats) => {
+        if (report.type !== "candidate-pair") return;
+        const state = (report as RTCIceCandidatePairStats).state;
+        counted.tried++;
+        if (state === "succeeded") counted.succeeded++;
+        if (state === "failed") counted.failed++;
+      });
+    } catch {
+      // the browser would not say
+    }
+    return {
+      ending,
+      seconds: Math.round((performance.now() - this.startedAt) / 1000),
+      local: { ...this.localCandidates },
+      remote: { ...this.remoteCandidates },
+      pairs,
+    };
   }
 
   private finish(reason: Error): void {
