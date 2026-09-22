@@ -1,6 +1,8 @@
 import { useEffect, useState, useSyncExternalStore, type DragEvent } from "react";
 import { formatBytes } from "../format.ts";
+import { FileSummary } from "../ui/FileSummary.tsx";
 import { RouteLabel } from "../ui/RouteLabel.tsx";
+import { TransferProgress } from "../ui/TransferProgress.tsx";
 import type { SenderSession } from "./sender-session.ts";
 import type { FileInfo, SenderError, SenderNotice, SenderState } from "./sender-state.ts";
 
@@ -37,17 +39,35 @@ function SendBody({ state, session }: { state: SenderState; session: SenderSessi
     case "waiting":
     case "connecting":
     case "connected":
+    case "sending":
       return (
         <>
           <FileSummary file={state.file} />
           <ShareLink link={state.link} />
           {state.phase === "waiting" && state.notice !== null && <p className="notice">{noticeText(state.notice)}</p>}
-          {!state.online && <p className="notice">Lost contact with the didi server. Reconnecting… The link works again once this page reconnects.</p>}
+          {!state.online && state.phase === "waiting" && (
+            <p className="notice">Lost contact with the didi server. Reconnecting… The link works again once this page reconnects.</p>
+          )}
           <p className="status">{statusText(state)}</p>
-          {state.phase === "connected" && <RouteLabel route={state.route} />}
+          {(state.phase === "connected" || state.phase === "sending") && <RouteLabel route={state.route} />}
+          {state.phase === "sending" && (
+            <TransferProgress done={state.delivered} total={state.file.size} bytesPerSecond={state.bytesPerSecond} verb="delivered" />
+          )}
           <p className="hint">Keep this page open. The file goes straight from this browser, so closing the page stops the transfer.</p>
           <button type="button" className="secondary" onClick={() => session.stop()}>
             Stop sharing
+          </button>
+        </>
+      );
+    case "delivered":
+      return (
+        <>
+          <FileSummary file={state.file} />
+          <p className="success">Delivered. The recipient’s copy matches yours.</p>
+          <RouteLabel route={state.route} />
+          <p className="hint">The link has stopped working.</p>
+          <button type="button" onClick={() => session.stop()}>
+            Send another file
           </button>
         </>
       );
@@ -107,14 +127,6 @@ function ChooseFile({ rejected, onFile }: { rejected: FileInfo | null; onFile: (
   );
 }
 
-function FileSummary({ file }: { file: FileInfo }) {
-  return (
-    <p className="file">
-      <span className="file-name">{file.name}</span> <span className="file-size">{formatBytes(file.size)}</span>
-    </p>
-  );
-}
-
 function ShareLink({ link }: { link: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -145,6 +157,8 @@ function statusText(state: SenderState): string {
       return "The recipient opened the link. Connecting…";
     case "connected":
       return "Recipient connected. Waiting for them to start receiving.";
+    case "sending":
+      return "Sending…";
     default:
       return "";
   }
@@ -158,6 +172,14 @@ function noticeText(notice: SenderNotice): string {
       return "Couldn’t connect directly to the recipient. One of your networks may block direct connections. They can open the link again to retry.";
     case "connection-lost":
       return "The connection to the recipient dropped.";
+    case "recipient-cancelled":
+      return "The recipient stopped the transfer.";
+    case "integrity-failed":
+      return "The recipient’s copy didn’t match yours, so it was discarded. They can open the link again to retry.";
+    case "recipient-save-failed":
+      return "The recipient’s browser couldn’t save the file. Their disk may be full.";
+    case "transfer-failed":
+      return "The transfer stopped because of an unexpected error.";
   }
 }
 
@@ -167,5 +189,7 @@ function errorText(error: SenderError): string {
       return "didi is at capacity right now. Try again in a few minutes.";
     case "server-rejected":
       return "The didi server refused this page’s request. Reload the page and try again.";
+    case "file-unreadable":
+      return "The file couldn’t be read. It may have been moved or changed after you chose it. Choose it again to send it.";
   }
 }

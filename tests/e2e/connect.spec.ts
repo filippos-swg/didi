@@ -6,7 +6,7 @@ test("a recipient connects directly to the sender", async ({ browser }) => {
   await expect(phase(sender)).toHaveAttribute("data-phase", "waiting");
 
   const recipient = await openAsRecipient(browser, link);
-  await expect(phase(recipient)).toHaveAttribute("data-phase", "connected");
+  await expect(phase(recipient)).toHaveAttribute("data-phase", "ready");
   await expect(phase(sender)).toHaveAttribute("data-phase", "connected");
 
   // Two contexts on one machine connect over host candidates: direct, same network.
@@ -29,7 +29,7 @@ test("an incomplete link is reported without contacting the server", async ({ pa
 test("a second recipient is told someone else is receiving", async ({ browser }) => {
   const { link } = await startSending(browser, smallFile);
   const first = await openAsRecipient(browser, link);
-  await expect(phase(first)).toHaveAttribute("data-phase", "connected");
+  await expect(phase(first)).toHaveAttribute("data-phase", "ready");
 
   const second = await openAsRecipient(browser, link);
   await expect(phase(second)).toHaveAttribute("data-phase", "unavailable");
@@ -46,13 +46,13 @@ test("when the recipient leaves, the sender waits for another attempt", async ({
   await expect(sender.locator(".notice")).toHaveText("The connection to the recipient dropped.");
 
   const again = await openAsRecipient(browser, link);
-  await expect(phase(again)).toHaveAttribute("data-phase", "connected");
+  await expect(phase(again)).toHaveAttribute("data-phase", "ready");
 });
 
 test("when the sender closes the page, the recipient is told the connection dropped", async ({ browser }) => {
   const { sender, link } = await startSending(browser, smallFile);
   const recipient = await openAsRecipient(browser, link);
-  await expect(phase(recipient)).toHaveAttribute("data-phase", "connected");
+  await expect(phase(recipient)).toHaveAttribute("data-phase", "ready");
 
   await sender.close({ runBeforeUnload: false });
   await expect(phase(recipient)).toHaveAttribute("data-phase", "failed");
@@ -89,7 +89,7 @@ test("when the sender page crashes, the recipient notices within seconds", async
   test.skip(browserName !== "chromium", "Page.crash is a Chrome DevTools command");
   const { sender, link } = await startSending(browser, smallFile);
   const recipient = await openAsRecipient(browser, link);
-  await expect(phase(recipient)).toHaveAttribute("data-phase", "connected");
+  await expect(phase(recipient)).toHaveAttribute("data-phase", "ready");
 
   // A crash sends nothing to the other side. ICE reports "disconnected" after
   // about 5 s; with signalling confirming the page is gone, that is enough.

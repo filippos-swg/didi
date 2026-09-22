@@ -3,9 +3,10 @@ import { expect, type Browser, type Page } from "@playwright/test";
 export type FileInput = string | { name: string; mimeType: string; buffer: Buffer };
 
 /** Opens the send page in a fresh browser context, chooses a file and returns the share link. */
-export async function startSending(browser: Browser, file: FileInput): Promise<{ sender: Page; link: string }> {
+export async function startSending(browser: Browser, file: FileInput, onPage?: (page: Page) => void): Promise<{ sender: Page; link: string }> {
   const context = await browser.newContext();
   const sender = await context.newPage();
+  onPage?.(sender);
   await sender.goto("/");
   await sender.locator('input[type="file"]').setInputFiles(file);
   const linkBox = sender.getByLabel("Share link");
@@ -14,9 +15,10 @@ export async function startSending(browser: Browser, file: FileInput): Promise<{
 }
 
 /** Opens a link in a fresh browser context, as a different person would. */
-export async function openAsRecipient(browser: Browser, link: string): Promise<Page> {
+export async function openAsRecipient(browser: Browser, link: string, onPage?: (page: Page) => void): Promise<Page> {
   const context = await browser.newContext();
   const page = await context.newPage();
+  onPage?.(page);
   await page.goto(link);
   return page;
 }
@@ -26,3 +28,45 @@ export function phase(page: Page) {
 }
 
 export const smallFile = { name: "hello.txt", mimeType: "text/plain", buffer: Buffer.from("hello from didi\n") };
+
+/** Writes a file of random bytes and returns its SHA-256. */
+export async function randomFile(path: string, size: number): Promise<string> {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const { open } = await import("node:fs/promises");
+  const hash = createHash("sha256");
+  const handle = await open(path, "w");
+  try {
+    for (let written = 0; written < size; ) {
+      const chunk = randomBytes(Math.min(8 * 1024 * 1024, size - written));
+      hash.update(chunk);
+      await handle.write(chunk);
+      written += chunk.length;
+    }
+  } finally {
+    await handle.close();
+  }
+  return hash.digest("hex");
+}
+
+export async function sha256OfFile(path: string): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  const { createReadStream } = await import("node:fs");
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
+}
+
+/** Counts every byte the pages it is attached to exchange with the signalling server. */
+export function signallingCounter(): { attach: (page: Page) => void; bytes: () => number } {
+  let total = 0;
+  return {
+    attach(page) {
+      page.on("websocket", (socket) => {
+        if (!socket.url().endsWith("/signal")) return;
+        socket.on("framesent", (frame) => (total += Buffer.byteLength(frame.payload)));
+        socket.on("framereceived", (frame) => (total += Buffer.byteLength(frame.payload)));
+      });
+    },
+    bytes: () => total,
+  };
+}

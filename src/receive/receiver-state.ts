@@ -3,6 +3,8 @@
 
 import type { ErrorCode } from "../../shared/signal-protocol.ts";
 import type { Route } from "../net/peer.ts";
+import type { FileMeta } from "../transfer/protocol.ts";
+import type { SinkResult } from "../transfer/sinks.ts";
 
 /** The link cannot be used right now. Nothing was attempted. */
 export type Unavailable = "invalid-link" | Extract<ErrorCode, "not-found" | "offline" | "busy" | "full">;
@@ -14,19 +16,30 @@ export type ReceiverError =
   | "signalling-lost"
   | "sender-left"
   | "connect-failed"
-  | "connection-lost";
+  | "connection-lost"
+  | "cancelled"
+  | "sender-cancelled"
+  | "sender-file-unreadable"
+  | "integrity-failed"
+  | "save-failed"
+  | "transfer-failed";
 
 export type ReceiverState =
   | { phase: "joining" }
   | { phase: "unavailable"; reason: Unavailable }
   | { phase: "connecting" }
-  | { phase: "connected"; route: Route }
+  | { phase: "ready"; file: FileMeta; route: Route }
+  | { phase: "receiving"; file: FileMeta; route: Route; received: number; bytesPerSecond: number | null }
+  | { phase: "complete"; file: FileMeta; route: Route; result: SinkResult }
   | { phase: "failed"; error: ReceiverError };
 
 export type ReceiverEvent =
   | { type: "unavailable"; reason: Unavailable }
   | { type: "joined" }
-  | { type: "peer-connected"; route: Route }
+  | { type: "offered"; file: FileMeta; route: Route }
+  | { type: "accepted" }
+  | { type: "progress"; received: number; bytesPerSecond: number | null }
+  | { type: "complete"; result: SinkResult }
   | { type: "failed"; error: ReceiverError }
   | { type: "retry" };
 
@@ -38,10 +51,16 @@ export function receiverReducer(state: ReceiverState, event: ReceiverEvent): Rec
       return state.phase === "joining" ? { phase: "unavailable", reason: event.reason } : state;
     case "joined":
       return state.phase === "joining" ? { phase: "connecting" } : state;
-    case "peer-connected":
-      return state.phase === "connecting" ? { phase: "connected", route: event.route } : state;
+    case "offered":
+      return state.phase === "connecting" ? { phase: "ready", file: event.file, route: event.route } : state;
+    case "accepted":
+      return state.phase === "ready" ? { phase: "receiving", file: state.file, route: state.route, received: 0, bytesPerSecond: null } : state;
+    case "progress":
+      return state.phase === "receiving" ? { ...state, received: event.received, bytesPerSecond: event.bytesPerSecond } : state;
+    case "complete":
+      return state.phase === "receiving" ? { phase: "complete", file: state.file, route: state.route, result: event.result } : state;
     case "failed":
-      return state.phase === "joining" || state.phase === "connecting" || state.phase === "connected"
+      return state.phase === "joining" || state.phase === "connecting" || state.phase === "ready" || state.phase === "receiving"
         ? { phase: "failed", error: event.error }
         : state;
     case "retry":

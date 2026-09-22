@@ -38,7 +38,7 @@ export class PeerLink {
   private finished = false;
   private otherPageGone = false;
   private readonly timeout: ReturnType<typeof setTimeout>;
-  private readonly onPageHide = () => this.close();
+  private readonly onPageHide = () => this.finish(new Error("page closed"));
 
   constructor(role: "offerer" | "answerer", iceServers: IceServer[], callbacks: PeerCallbacks) {
     this.callbacks = callbacks;
@@ -136,10 +136,30 @@ export class PeerLink {
     }
   }
 
-  /** Ends the connection without reporting a failure. */
+  /** Ends the connection at once, without reporting a failure. Anything still queued is lost. */
   close(): void {
     if (this.finished) return;
     this.finish(new Error("closed"));
+  }
+
+  /**
+   * Ends the connection after everything already queued on the DataChannel has
+   * been delivered, so a final message (an abort, or "verified") is not lost.
+   */
+  closeGracefully(timeoutMs = 5000): void {
+    if (this.finished) return;
+    const channel = this.channel;
+    if (channel === null || channel.readyState !== "open") {
+      this.close();
+      return;
+    }
+    this.finished = true; // from here on, the channel closing is expected, not a failure
+    clearTimeout(this.timeout);
+    this.rejectReady(new Error("closed"));
+    const done = () => this.finish(new Error("closed"));
+    channel.addEventListener("close", done, { once: true });
+    setTimeout(done, timeoutMs);
+    channel.close();
   }
 
   private adopt(channel: RTCDataChannel): void {
@@ -186,7 +206,7 @@ export class PeerLink {
     clearTimeout(this.timeout);
     window.removeEventListener("pagehide", this.onPageHide);
     this.rejectReady(reason);
-    this.pc.close();
+    if (this.pc.connectionState !== "closed") this.pc.close();
   }
 }
 

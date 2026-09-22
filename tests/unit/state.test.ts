@@ -46,16 +46,52 @@ test("sender: events that do not apply to the current phase change nothing", () 
   assert.equal(senderReducer(registering, { type: "peer-lost", notice: "recipient-left" }), registering);
 });
 
+test("sender: accepted, progress, delivered", () => {
+  const connected = run([{ type: "file-chosen", file }, { type: "hosting", link }, { type: "peer-joined" }, { type: "peer-connected", route: direct }]);
+  const sending = run([{ type: "accepted" }, { type: "progress", delivered: 4, bytesPerSecond: 8 }], connected);
+  assert.deepEqual(sending, { phase: "sending", file, link, online: true, route: direct, delivered: 4, bytesPerSecond: 8 });
+  assert.deepEqual(senderReducer(sending, { type: "delivered" }), { phase: "delivered", file, route: direct });
+  // An interrupted transfer returns to waiting: the link can be tried again.
+  assert.deepEqual(senderReducer(sending, { type: "peer-lost", notice: "connection-lost" }), {
+    phase: "waiting",
+    file,
+    link,
+    online: true,
+    notice: "connection-lost",
+  });
+});
+
+test("sender: progress and delivery only count while sending", () => {
+  const connected = run([{ type: "file-chosen", file }, { type: "hosting", link }, { type: "peer-joined" }, { type: "peer-connected", route: direct }]);
+  assert.equal(senderReducer(connected, { type: "progress", delivered: 4, bytesPerSecond: 8 }), connected);
+  assert.equal(senderReducer(connected, { type: "delivered" }), connected);
+});
+
 test("sender: an oversized file is refused while idle", () => {
   assert.deepEqual(run([{ type: "file-too-large", file }]), { phase: "idle", rejected: file });
 });
 
-test("receiver: join, connect, fail, retry", () => {
+test("receiver: join, see the file, receive, complete", () => {
+  const meta = { name: "a.bin", size: 10, type: "", lastModified: 0 };
+  const result = { kind: "file", name: "a.bin" } as const;
   let state: ReceiverState = initialReceiverState;
   state = receiverReducer(state, { type: "joined" });
   assert.deepEqual(state, { phase: "connecting" });
-  state = receiverReducer(state, { type: "peer-connected", route: direct });
-  assert.deepEqual(state, { phase: "connected", route: direct });
+  state = receiverReducer(state, { type: "offered", file: meta, route: direct });
+  assert.deepEqual(state, { phase: "ready", file: meta, route: direct });
+  state = receiverReducer(state, { type: "accepted" });
+  assert.deepEqual(state, { phase: "receiving", file: meta, route: direct, received: 0, bytesPerSecond: null });
+  state = receiverReducer(state, { type: "progress", received: 5, bytesPerSecond: 100 });
+  assert.equal(state.phase === "receiving" && state.received, 5);
+  state = receiverReducer(state, { type: "complete", result });
+  assert.deepEqual(state, { phase: "complete", file: meta, route: direct, result });
+  // The sender closing the connection after completion must not turn success into failure.
+  assert.equal(receiverReducer(state, { type: "failed", error: "connection-lost" }), state);
+});
+
+test("receiver: a failure mid-transfer can be retried", () => {
+  const meta = { name: "a.bin", size: 10, type: "", lastModified: 0 };
+  let state: ReceiverState = { phase: "receiving", file: meta, route: direct, received: 3, bytesPerSecond: null };
   state = receiverReducer(state, { type: "failed", error: "connection-lost" });
   assert.deepEqual(state, { phase: "failed", error: "connection-lost" });
   assert.deepEqual(receiverReducer(state, { type: "retry" }), initialReceiverState);

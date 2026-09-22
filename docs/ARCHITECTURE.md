@@ -64,7 +64,7 @@ A connection that cannot be established within 20 seconds fails with a clear "co
 
 Noticing that the other side has gone:
 
-- **Page closed or navigated away:** each page closes its connection on `pagehide`. The other side sees the DataChannel close within milliseconds.
+- **Page closed or navigated away:** each page closes its connection on `pagehide`. When the connection is idle, the other side sees the DataChannel close within milliseconds. Mid-transfer, the goodbye does not reliably get out, and the crash path below applies.
 - **Crash or lost network:** nothing is sent. Once the signalling server reports the other page's socket closed *and* ICE reports `disconnected` (about 5 seconds in Chrome), the connection is treated as lost. Neither signal on its own is enough: signalling can drop while the direct connection lives, and `disconnected` can recover.
 - **Fallback:** ICE `failed`, about 15 seconds in Chrome.
 
@@ -81,6 +81,25 @@ Concretely:
 - **Local backpressure:** the sender pauses while the channel's `bufferedAmount` is above a high-water mark, and resumes on `bufferedamountlow`. It is event-driven, so background-tab timer throttling does not stall it.
 - **End-to-end backpressure:** the recipient acknowledges bytes it has committed to its sink, and the sender keeps at most a fixed window unacknowledged. A DataChannel receiver cannot pause delivery, so without this a slow disk on the recipient's side would grow memory without bound. The acknowledgements also give the sender true delivered progress.
 - **Integrity:** SHA-256 of each block is sent after the block and checked by the recipient before committing it. The root hash (SHA-256 over all block hashes) is confirmed by the recipient at the end.
+- **Ending:** either side can abort with a reason (`cancelled`, `file-unreadable`, `integrity`, `write-failed`, `protocol`). After an abort, or after `verified`, the side that is finishing closes the DataChannel gracefully, and only then the connection. Closing the connection outright discards whatever is still queued, including the message explaining why.
+- **One reporter:** while a transfer is running, the transfer engine alone reports how it ended. A lost connection is handled after the messages that already arrived, so "the sender stopped sharing" is not overwritten by "the connection dropped".
+
+The message sequence and limits live in `src/transfer/protocol.ts`:
+
+| Constant | Value |
+|---|---|
+| block (hash, write, acknowledge) | 1 MiB |
+| chunk | 64 KiB, or the negotiated SCTP maximum if smaller |
+| pause sending above `bufferedAmount` | 8 MiB (Chrome fails `send()` past 16 MiB) |
+| resume below | 2 MiB |
+| unacknowledged window | 16 MiB |
+
+Measured with two tabs of one Chrome on one machine (100 MB):
+
+- 15 MB/s on average, about 27 MB/s once running, after a slow first two seconds.
+- Instrumentation shows the time is spent waiting for the DataChannel to drain. Reading, hashing and the acknowledgement window never limit it.
+- Changing the buffer thresholds (1–16 MiB) or the chunk size (64 or 256 KiB) made no difference.
+- Throughput between two machines on real networks is still to be measured.
 
 ## Receiving
 
@@ -92,6 +111,8 @@ The receiver writes verified blocks to a sink:
 - **Memory sink:** Firefox and Safari. Blocks are assembled in memory, and the recipient saves the file at the end.
 
 A disk-backed sink using the Origin Private File System is the planned fallback if the memory sink fails near 2 GB.
+
+Status: every browser currently uses the memory sink. The disk sink for Chrome and Edge is the next milestone (M4).
 
 ## Security and privacy language
 
@@ -123,5 +144,6 @@ tests/    unit/ (node:test), e2e/ (Playwright, two browser contexts)
 
 - Safari/iOS behaviour in practice (desktop Safari is in the v0.1 matrix; mobile is not)
 - whether the memory sink holds up near 2 GB in Firefox and Safari
+- throughput between two machines on real networks, and whether the slow start seen on one machine appears there
 - TURN provider and bandwidth cost
 - behaviour when mobile browsers background a transfer

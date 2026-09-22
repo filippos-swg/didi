@@ -13,3 +13,11 @@ export function formatBytes(bytes: number): string {
   const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
   return `${value.toFixed(digits)} ${UNITS[unit]}`;
 }
+
+export function formatDuration(seconds: number): string {
+  const s = Math.max(1, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  const minutes = Math.round(s / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}

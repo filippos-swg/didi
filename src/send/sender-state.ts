@@ -10,17 +10,33 @@ export interface FileInfo {
 }
 
 /** Why the last attempt with a recipient ended. The link itself still works. */
-export type SenderNotice = "recipient-left" | "connect-failed" | "connection-lost";
+export type SenderNotice =
+  | "recipient-left"
+  | "connect-failed"
+  | "connection-lost"
+  | "recipient-cancelled"
+  | "integrity-failed"
+  | "recipient-save-failed"
+  | "transfer-failed";
 
 /** Why sharing stopped altogether. */
-export type SenderError = "server-full" | "server-rejected";
+export type SenderError = "server-full" | "server-rejected" | "file-unreadable";
+
+interface Shared {
+  file: FileInfo;
+  link: string;
+  /** Whether the signalling connection is up. Only matters while the link is waiting to be opened. */
+  online: boolean;
+}
 
 export type SenderState =
   | { phase: "idle"; rejected: FileInfo | null }
   | { phase: "registering"; file: FileInfo }
-  | { phase: "waiting"; file: FileInfo; link: string; online: boolean; notice: SenderNotice | null }
-  | { phase: "connecting"; file: FileInfo; link: string; online: boolean }
-  | { phase: "connected"; file: FileInfo; link: string; online: boolean; route: Route }
+  | ({ phase: "waiting"; notice: SenderNotice | null } & Shared)
+  | ({ phase: "connecting" } & Shared)
+  | ({ phase: "connected"; route: Route } & Shared)
+  | ({ phase: "sending"; route: Route; delivered: number; bytesPerSecond: number | null } & Shared)
+  | { phase: "delivered"; file: FileInfo; route: Route }
   | { phase: "failed"; error: SenderError };
 
 export type SenderEvent =
@@ -30,11 +46,18 @@ export type SenderEvent =
   | { type: "signal-down" }
   | { type: "peer-joined" }
   | { type: "peer-connected"; route: Route }
+  | { type: "accepted" }
+  | { type: "progress"; delivered: number; bytesPerSecond: number | null }
+  | { type: "delivered" }
   | { type: "peer-lost"; notice: SenderNotice }
   | { type: "fatal"; error: SenderError }
   | { type: "reset" };
 
 export const initialSenderState: SenderState = { phase: "idle", rejected: null };
+
+function shared(state: Shared): Shared {
+  return { file: state.file, link: state.link, online: state.online };
+}
 
 export function senderReducer(state: SenderState, event: SenderEvent): SenderState {
   switch (event.type) {
@@ -53,12 +76,18 @@ export function senderReducer(state: SenderState, event: SenderEvent): SenderSta
     case "signal-down":
       return "online" in state && state.online ? { ...state, online: false } : state;
     case "peer-joined":
-      return state.phase === "waiting" ? { phase: "connecting", file: state.file, link: state.link, online: state.online } : state;
+      return state.phase === "waiting" ? { phase: "connecting", ...shared(state) } : state;
     case "peer-connected":
-      return state.phase === "connecting" ? { ...state, phase: "connected", route: event.route } : state;
+      return state.phase === "connecting" ? { phase: "connected", ...shared(state), route: event.route } : state;
+    case "accepted":
+      return state.phase === "connected" ? { phase: "sending", ...shared(state), route: state.route, delivered: 0, bytesPerSecond: null } : state;
+    case "progress":
+      return state.phase === "sending" ? { ...state, delivered: event.delivered, bytesPerSecond: event.bytesPerSecond } : state;
+    case "delivered":
+      return state.phase === "sending" ? { phase: "delivered", file: state.file, route: state.route } : state;
     case "peer-lost":
-      return state.phase === "connecting" || state.phase === "connected"
-        ? { phase: "waiting", file: state.file, link: state.link, online: state.online, notice: event.notice }
+      return state.phase === "connecting" || state.phase === "connected" || state.phase === "sending"
+        ? { phase: "waiting", ...shared(state), notice: event.notice }
         : state;
   }
 }
