@@ -101,6 +101,16 @@ Measured with two tabs of one Chrome on one machine (100 MB):
 - Changing the buffer thresholds (1–16 MiB) or the chunk size (64 or 256 KiB) made no difference.
 - Throughput between two machines on real networks is still to be measured.
 
+## Field tests
+
+Real transfers between separate machines, as opposed to the automated tests.
+
+| Date | Sender | Recipient | Network | File | Result |
+|---|---|---|---|---|---|
+| 2026-09-22 | Chrome, macOS | Firefox, another machine | same Wi-Fi | 8.53 MB video | Direct, same network; verified intact. An earlier attempt on the same network failed to connect, cause unknown (before connection reports existed). |
+
+Still to test: two separate internet connections, Safari, Edge, and files near 2 GB.
+
 ## Receiving
 
 Browser receiving is the harder side of very large transfers. The 2 GB v0.1 ceiling intentionally avoids making 100 GB browser transfers a launch requirement. The architecture should nevertheless avoid assumptions that make future streaming-to-disk support impossible.
