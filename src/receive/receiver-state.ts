@@ -31,7 +31,7 @@ export type ReceiverState =
   | { phase: "connecting" }
   | { phase: "ready"; file: FileMeta; route: Route }
   | { phase: "choosing"; file: FileMeta; route: Route } // the save dialog is open
-  | { phase: "receiving"; file: FileMeta; route: Route; received: number; bytesPerSecond: number | null }
+  | { phase: "receiving"; file: FileMeta; route: Route; received: number; bytesPerSecond: number | null; stalledSeconds: number | null }
   | { phase: "complete"; file: FileMeta; route: Route; result: SinkResult }
   | { phase: "failed"; error: ReceiverError; report: ConnectionReport | null };
 
@@ -43,6 +43,8 @@ export type ReceiverEvent =
   | { type: "choice-cancelled" }
   | { type: "accepted" }
   | { type: "progress"; received: number; bytesPerSecond: number | null }
+  /** Nothing has arrived for this many seconds, or null once it arrives again. */
+  | { type: "stalled"; seconds: number | null }
   | { type: "complete"; result: SinkResult }
   | { type: "failed"; error: ReceiverError; report: ConnectionReport | null }
   | { type: "retry" };
@@ -63,10 +65,12 @@ export function receiverReducer(state: ReceiverState, event: ReceiverEvent): Rec
       return state.phase === "choosing" ? { phase: "ready", file: state.file, route: state.route } : state;
     case "accepted":
       return state.phase === "ready" || state.phase === "choosing"
-        ? { phase: "receiving", file: state.file, route: state.route, received: 0, bytesPerSecond: null }
+        ? { phase: "receiving", file: state.file, route: state.route, received: 0, bytesPerSecond: null, stalledSeconds: null }
         : state;
     case "progress":
       return state.phase === "receiving" ? { ...state, received: event.received, bytesPerSecond: event.bytesPerSecond } : state;
+    case "stalled":
+      return state.phase === "receiving" && state.stalledSeconds !== event.seconds ? { ...state, stalledSeconds: event.seconds } : state;
     case "complete":
       return state.phase === "receiving" ? { phase: "complete", file: state.file, route: state.route, result: event.result } : state;
     case "failed":

@@ -32,11 +32,11 @@ interface Shared {
 
 export type SenderState =
   | { phase: "idle"; rejected: FileInfo | null }
-  | { phase: "registering"; file: FileInfo }
+  | { phase: "registering"; file: FileInfo; retrying: boolean }
   | ({ phase: "waiting"; notice: SenderNotice | null; report: ConnectionReport | null } & Shared)
   | ({ phase: "connecting" } & Shared)
   | ({ phase: "connected"; route: Route } & Shared)
-  | ({ phase: "sending"; route: Route; delivered: number; bytesPerSecond: number | null } & Shared)
+  | ({ phase: "sending"; route: Route; delivered: number; bytesPerSecond: number | null; stalledSeconds: number | null } & Shared)
   | { phase: "delivered"; file: FileInfo; route: Route }
   | { phase: "failed"; error: SenderError };
 
@@ -49,6 +49,8 @@ export type SenderEvent =
   | { type: "peer-connected"; route: Route }
   | { type: "accepted" }
   | { type: "progress"; delivered: number; bytesPerSecond: number | null }
+  /** Nothing has moved for this many seconds, or null once it moves again. */
+  | { type: "stalled"; seconds: number | null }
   | { type: "delivered" }
   | { type: "peer-lost"; notice: SenderNotice; report: ConnectionReport | null }
   | { type: "fatal"; error: SenderError }
@@ -69,21 +71,26 @@ export function senderReducer(state: SenderState, event: SenderEvent): SenderSta
     case "file-too-large":
       return state.phase === "idle" ? { phase: "idle", rejected: event.file } : state;
     case "file-chosen":
-      return state.phase === "idle" ? { phase: "registering", file: event.file } : state;
+      return state.phase === "idle" ? { phase: "registering", file: event.file, retrying: false } : state;
     case "hosting":
       if (state.phase === "registering") return { phase: "waiting", file: state.file, link: event.link, online: true, notice: null, report: null };
       // Reclaimed after a reconnect: same session, same link.
       return "online" in state && !state.online ? { ...state, online: true } : state;
     case "signal-down":
+      if (state.phase === "registering") return state.retrying ? state : { ...state, retrying: true };
       return "online" in state && state.online ? { ...state, online: false } : state;
     case "peer-joined":
       return state.phase === "waiting" ? { phase: "connecting", ...shared(state) } : state;
     case "peer-connected":
       return state.phase === "connecting" ? { phase: "connected", ...shared(state), route: event.route } : state;
     case "accepted":
-      return state.phase === "connected" ? { phase: "sending", ...shared(state), route: state.route, delivered: 0, bytesPerSecond: null } : state;
+      return state.phase === "connected"
+        ? { phase: "sending", ...shared(state), route: state.route, delivered: 0, bytesPerSecond: null, stalledSeconds: null }
+        : state;
     case "progress":
       return state.phase === "sending" ? { ...state, delivered: event.delivered, bytesPerSecond: event.bytesPerSecond } : state;
+    case "stalled":
+      return state.phase === "sending" && state.stalledSeconds !== event.seconds ? { ...state, stalledSeconds: event.seconds } : state;
     case "delivered":
       return state.phase === "sending" ? { phase: "delivered", file: state.file, route: state.route } : state;
     case "peer-lost":

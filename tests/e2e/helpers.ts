@@ -3,10 +3,14 @@ import { expect, type Browser, type Page } from "@playwright/test";
 export type FileInput = string | { name: string; mimeType: string; buffer: Buffer };
 
 /** Opens the send page in a fresh browser context, chooses a file and returns the share link. */
-export async function startSending(browser: Browser, file: FileInput, onPage?: (page: Page) => void): Promise<{ sender: Page; link: string }> {
+export async function startSending(
+  browser: Browser,
+  file: FileInput,
+  onPage?: (page: Page) => void | Promise<void>,
+): Promise<{ sender: Page; link: string }> {
   const context = await browser.newContext();
   const sender = await context.newPage();
-  onPage?.(sender);
+  await onPage?.(sender);
   await sender.goto("/");
   await sender.locator('input[type="file"]').setInputFiles(file);
   const linkBox = sender.getByLabel("Share link");
@@ -15,7 +19,7 @@ export async function startSending(browser: Browser, file: FileInput, onPage?: (
 }
 
 export interface RecipientOptions {
-  onPage?: (page: Page) => void;
+  onPage?: (page: Page) => void | Promise<void>;
   /**
    * "memory": behave like Firefox and Safari, which cannot save to disk directly.
    * "disk": save to disk, with a stand-in for Chrome's native save dialog (which
@@ -28,7 +32,7 @@ export interface RecipientOptions {
 export async function openAsRecipient(browser: Browser, link: string, options: RecipientOptions = {}): Promise<Page> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  options.onPage?.(page);
+  await options.onPage?.(page);
   if ((options.save ?? "memory") === "memory") {
     await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined }));
   } else {

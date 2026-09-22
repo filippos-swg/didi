@@ -35,6 +35,7 @@ function SendBody({ state, session }: { state: SenderState; session: SenderSessi
         <>
           <FileSummary file={state.file} />
           <p className="status">Creating your link…</p>
+          {state.retrying && <p className="notice">Can’t reach the didi server. Retrying…</p>}
         </>
       );
     case "waiting":
@@ -53,7 +54,13 @@ function SendBody({ state, session }: { state: SenderState; session: SenderSessi
           <p className="status">{statusText(state)}</p>
           {(state.phase === "connected" || state.phase === "sending") && <RouteLabel route={state.route} />}
           {state.phase === "sending" && (
-            <TransferProgress done={state.delivered} total={state.file.size} bytesPerSecond={state.bytesPerSecond} verb="delivered" />
+            <TransferProgress
+              done={state.delivered}
+              total={state.file.size}
+              bytesPerSecond={state.bytesPerSecond}
+              stalledSeconds={state.stalledSeconds}
+              verb="delivered"
+            />
           )}
           <p className="hint">Keep this page open. The file goes straight from this browser, so closing the page stops the transfer.</p>
           <button type="button" className="secondary" onClick={() => session.stop()}>
@@ -160,7 +167,7 @@ function statusText(state: SenderState): string {
     case "connected":
       return "Recipient connected. Waiting for them to start receiving.";
     case "sending":
-      return "Sending…";
+      return state.delivered === state.file.size ? "Waiting for the recipient to finish saving…" : "Sending…";
     default:
       return "";
   }

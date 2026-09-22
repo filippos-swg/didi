@@ -10,7 +10,7 @@ import { Store } from "../store.ts";
 import { TransferError } from "../transfer/protocol.ts";
 import { FileReceiver } from "../transfer/receive-file.ts";
 import { MemorySink, canSaveToDisk, chooseDiskSink, type Sink, type SinkResult } from "../transfer/sinks.ts";
-import { SpeedMeter } from "../transfer/speed.ts";
+import { SpeedMeter, watchForStalls } from "../transfer/speed.ts";
 import { initialReceiverState, receiverReducer, type ReceiverError, type ReceiverEvent, type ReceiverState } from "./receiver-state.ts";
 
 interface Attempt {
@@ -55,7 +55,7 @@ export class ReceiverSession {
     if (state.phase !== "ready" || attempt === null || transfer === null || transfer === undefined) return;
 
     if (!canSaveToDisk()) {
-      this.startReceiving(attempt, transfer, new MemorySink(state.file.type));
+      this.startReceiving(attempt, transfer, new MemorySink(state.file.type), state.file.size);
       return;
     }
     this.store.dispatch({ type: "choosing" });
@@ -66,24 +66,31 @@ export class ReceiverSession {
           return;
         }
         if (sink === null) this.store.dispatch({ type: "choice-cancelled" });
-        else this.startReceiving(attempt, transfer, sink);
+        else this.startReceiving(attempt, transfer, sink, state.file.size);
       },
       (error: unknown) => {
         // The browser refused the dialog or the file. Receiving into memory still works.
         console.warn("didi: saving to disk is unavailable, receiving into memory instead", error);
         if (this.attempt === attempt && this.store.get().phase === "choosing") {
-          this.startReceiving(attempt, transfer, new MemorySink(state.file.type));
+          this.startReceiving(attempt, transfer, new MemorySink(state.file.type), state.file.size);
         }
       },
     );
   }
 
-  private startReceiving(attempt: Attempt, transfer: FileReceiver, sink: Sink): void {
+  private startReceiving(attempt: Attempt, transfer: FileReceiver, sink: Sink, size: number): void {
     const meter = new SpeedMeter();
     this.store.dispatch({ type: "accepted" });
+    watchForStalls(
+      () => {
+        if (this.attempt !== attempt || this.store.get().phase !== "receiving") return undefined;
+        return transfer.received >= size ? null : String(transfer.received);
+      },
+      (seconds) => this.store.dispatch({ type: "stalled", seconds }),
+    );
     transfer
       .accept(sink, (received) => {
-        if (meter.add(received)) this.store.dispatch({ type: "progress", received, bytesPerSecond: meter.bytesPerSecond() });
+        if (meter.add(received) || received === size) this.store.dispatch({ type: "progress", received, bytesPerSecond: meter.bytesPerSecond() });
       })
       .then(
         (result) => this.complete(attempt, result),

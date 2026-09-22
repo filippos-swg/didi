@@ -75,6 +75,11 @@ export class FileReceiver {
     return done;
   }
 
+  /** Bytes that have arrived so far, verified or not. Changes whenever data moves. */
+  get received(): number {
+    return this.committed + this.filled;
+  }
+
   /**
    * The connection is gone. Handled after every message that already arrived, so
    * a final abort from the sender is reported rather than the bare disconnect.

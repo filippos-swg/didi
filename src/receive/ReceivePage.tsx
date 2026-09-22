@@ -11,6 +11,14 @@ import type { ReceiverError, ReceiverState, Unavailable } from "./receiver-state
 export function ReceivePage({ session }: { session: ReceiverSession }) {
   const state = useSyncExternalStore(session.store.subscribe, session.store.get);
   useEffect(() => session.start(), [session]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      const phase = session.store.get().phase;
+      if (phase === "choosing" || phase === "receiving") event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [session]);
 
   return (
     <main data-phase={state.phase}>
@@ -53,7 +61,14 @@ function ReceiveBody({ state, session }: { state: ReceiverState; session: Receiv
         <>
           <FileSummary file={state.file} />
           <RouteLabel route={state.route} />
-          <TransferProgress done={state.received} total={state.file.size} bytesPerSecond={state.bytesPerSecond} verb="received" />
+          <TransferProgress
+            done={state.received}
+            total={state.file.size}
+            bytesPerSecond={state.bytesPerSecond}
+            stalledSeconds={state.stalledSeconds}
+            verb="received"
+          />
+          {state.received === state.file.size && <p className="status">Saving the file…</p>}
           <button type="button" className="secondary" onClick={() => session.cancel()}>
             Stop receiving
           </button>

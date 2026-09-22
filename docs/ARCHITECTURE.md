@@ -94,6 +94,8 @@ Concretely:
 - **Ending:** either side can abort with a reason (`cancelled`, `file-unreadable`, `integrity`, `write-failed`, `protocol`). After an abort, or after `verified`, the side that is finishing closes the DataChannel gracefully, and only then the connection. Closing the connection outright discards whatever is still queued, including the message explaining why.
 - **One reporter:** while a transfer is running, the transfer engine alone reports how it ended. A lost connection is handled after the messages that already arrived, so "the sender stopped sharing" is not overwritten by "the connection dropped".
 
+- **Stalls:** once a second, each side checks whether anything has moved. The sender checks acknowledgements and its outgoing queue; the recipient checks received bytes. After 10 seconds without movement, both sides say so, and the message clears when data moves again. Nothing counts as stalled once every byte has arrived and the file is being saved. A stall is only shown, never acted on: the transfer fails when the connection itself is lost.
+
 The message sequence and limits live in `src/transfer/protocol.ts`:
 
 | Constant | Value |
@@ -110,6 +112,30 @@ Measured with two tabs of one Chrome on one machine (100 MB):
 - Instrumentation shows the time is spent waiting for the DataChannel to drain. Reading, hashing and the acknowledgement window never limit it.
 - Changing the buffer thresholds (1–16 MiB) or the chunk size (64 or 256 KiB) made no difference.
 - Throughput between two machines on real networks is still to be measured.
+
+## Failure handling
+
+Every case below has an automated browser test (`tests/e2e/`), except where noted.
+
+| Situation | Sender sees | Recipient sees |
+|---|---|---|
+| Link unknown, ended or incomplete | — | "This link isn't active" / "This link is incomplete" |
+| Someone else is already receiving | — | "Someone else is receiving this file right now" |
+| No direct path between the browsers | "Couldn't connect directly to the recipient", plus a connection report | "Couldn't connect directly to the sender", plus a connection report |
+| didi's server unreachable while creating the link | "Can't reach the didi server. Retrying…" until it can | — |
+| Sender loses the server while waiting | "Lost contact with the didi server. Reconnecting…"; the same link works again once reconnected | "The sender's page isn't connected right now" (Try again) |
+| Sender loses the server mid-transfer | nothing: the transfer carries on | nothing |
+| Recipient can't reach the server | — | "Couldn't reach the didi server" (Try again) |
+| Sender stops sharing (before or during) | back to choosing a file | "The sender stopped sharing this file" |
+| Recipient stops receiving | "The recipient stopped the transfer"; the link still works | "You stopped receiving. The partial file was discarded" |
+| Sender page closed or crashed | — | "The connection to the sender dropped", within about 5 s |
+| Recipient page closed or crashed | "The connection to the recipient dropped"; the link still works | — |
+| Nothing moves for 10 s | "Nothing delivered for N s…" | "Nothing received for N s…" |
+| Sender's file changed or moved after choosing | "The file couldn't be read… Choose it again" | "The sender's copy of the file couldn't be read" |
+| Recipient's disk full or refuses the write | "The recipient's browser couldn't save the file"; the link still works | "Your browser couldn't save the file. Your disk may be full" |
+| A block or the whole file doesn't match | "The recipient's copy didn't match yours" | "The received data didn't match the sender's copy" (unit-tested only) |
+| Leaving the page mid-transfer | the browser asks first | the browser asks first |
+| Network lost without the page closing | detected when ICE gives up (about 15 s in Chrome), shown as a stall before that (not automated: it needs a real network to drop) | same |
 
 ## Field tests
 

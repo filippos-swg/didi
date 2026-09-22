@@ -26,3 +26,33 @@ export class SpeedMeter {
     return ((last.bytes - first.bytes) / (last.time - first.time)) * 1000;
   }
 }
+
+/** How long nothing may move before a transfer counts as stalled. */
+export const STALL_AFTER_SECONDS = 10;
+
+/**
+ * Checks once a second whether anything has moved, and reports how long it has
+ * not. `sample` returns a marker that changes whenever data moves, null while
+ * nothing is expected to move (the file is being finalised), or undefined once the
+ * transfer is over, which stops the watch.
+ */
+export function watchForStalls(sample: () => string | null | undefined, report: (seconds: number | null) => void): void {
+  let marker: string | null | undefined = sample();
+  let lastMoved = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    const next = sample();
+    if (next === undefined) {
+      clearInterval(timer);
+      return;
+    }
+    if (next === null || next !== marker) {
+      marker = next;
+      lastMoved = now;
+      report(null);
+      return;
+    }
+    const idle = (now - lastMoved) / 1000;
+    report(idle >= STALL_AFTER_SECONDS ? Math.floor(idle) : null);
+  }, 1000);
+}

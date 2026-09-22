@@ -27,7 +27,7 @@ The 2 GB ceiling is a **product constraint for v0.1**, not an architectural assu
 - [x] Sender and recipient see connection state, progress and speed.
 - [x] Transfer uses bounded chunks/backpressure rather than loading the whole file into memory.
 - [x] Received file can be verified as intact.
-- [ ] Sender-offline and interrupted-transfer states fail clearly.
+- [x] Sender-offline and interrupted-transfer states fail clearly.
 - [ ] Core flow works in supported desktop browsers.
 
 See `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, and `docs/ROADMAP.md`.

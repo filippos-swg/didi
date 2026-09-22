@@ -9,7 +9,7 @@ import { connectSignal, type SignalConnection } from "../net/signal-client.ts";
 import { Store } from "../store.ts";
 import { MAX_FILE_BYTES, TransferError } from "../transfer/protocol.ts";
 import { FileSender } from "../transfer/send-file.ts";
-import { SpeedMeter } from "../transfer/speed.ts";
+import { SpeedMeter, watchForStalls } from "../transfer/speed.ts";
 import {
   initialSenderState,
   senderReducer,
@@ -83,6 +83,7 @@ export class SenderSession {
         },
       );
     } catch {
+      this.store.dispatch({ type: "signal-down" });
       this.scheduleReconnect();
       return;
     }
@@ -164,10 +165,22 @@ export class SenderSession {
 
   private sendFile(attempt: Attempt, channel: RTCDataChannel, file: File): void {
     const meter = new SpeedMeter();
+    let delivered = 0;
     const transfer = new FileSender(channel, file, attempt.peer.maxMessageSize(), {
-      onAccepted: () => this.store.dispatch({ type: "accepted" }),
-      onProgress: (delivered) => {
-        if (meter.add(delivered)) this.store.dispatch({ type: "progress", delivered, bytesPerSecond: meter.bytesPerSecond() });
+      onAccepted: () => {
+        this.store.dispatch({ type: "accepted" });
+        // Data is moving if acknowledgements arrive or the outgoing queue changes.
+        watchForStalls(
+          () => {
+            if (this.attempt !== attempt || this.store.get().phase !== "sending") return undefined;
+            return delivered === file.size ? null : `${delivered}/${channel.bufferedAmount}`;
+          },
+          (seconds) => this.store.dispatch({ type: "stalled", seconds }),
+        );
+      },
+      onProgress: (bytes) => {
+        delivered = bytes;
+        if (meter.add(bytes) || bytes === file.size) this.store.dispatch({ type: "progress", delivered: bytes, bytesPerSecond: meter.bytesPerSecond() });
       },
     });
     attempt.transfer = transfer;
