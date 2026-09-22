@@ -4,10 +4,10 @@ import { openAsRecipient, phase, randomFile, sha256OfFile, signallingCounter, st
 
 const MB = 1024 * 1024;
 
-async function sendAndSave(browser: Browser, path: string, name: string, timeout: number) {
+async function sendAndSave(browser: Browser, path: string, name: string, timeout: number, checkSpeed = false) {
   const signalling = signallingCounter();
   const { sender, link } = await startSending(browser, path, signalling.attach);
-  const recipient = await openAsRecipient(browser, link, signalling.attach);
+  const recipient = await openAsRecipient(browser, link, { onPage: signalling.attach });
 
   // The recipient sees the file before anything is transferred, and chooses to receive it.
   await expect(phase(recipient)).toHaveAttribute("data-phase", "ready");
@@ -15,6 +15,10 @@ async function sendAndSave(browser: Browser, path: string, name: string, timeout
   await expect(recipient.locator(".route")).toHaveAttribute("data-route", "direct");
   const started = Date.now();
   await recipient.getByRole("button", { name: "Receive file" }).click();
+  if (checkSpeed) {
+    // Both sides show how much has moved, how fast, and how long is left.
+    for (const page of [recipient, sender]) await expect(page.locator(".progress-text")).toContainText(/\d+(\.\d+)? (KB|MB|GB)\/s · about .+ left/);
+  }
 
   await expect(phase(recipient)).toHaveAttribute("data-phase", "complete", { timeout });
   await expect(phase(sender)).toHaveAttribute("data-phase", "delivered");
@@ -33,12 +37,12 @@ test("a 1 MB file arrives intact", async ({ browser }, testInfo) => {
   expect(await sha256OfFile(saved)).toBe(hash);
 });
 
-test("a 100 MB file arrives intact, and its bytes never touch the server", async ({ browser }, testInfo) => {
+test("a 100 MB file arrives intact with progress and speed shown, and its bytes never touch the server", async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const size = 100 * MB + 12_345; // not a whole number of blocks
   const path = testInfo.outputPath("footage.mov");
   const hash = await randomFile(path, size);
-  const { saved, seconds, signallingBytes } = await sendAndSave(browser, path, "footage.mov", 90_000);
+  const { saved, seconds, signallingBytes } = await sendAndSave(browser, path, "footage.mov", 90_000, true);
   expect((await stat(saved)).size).toBe(size);
   expect(await sha256OfFile(saved)).toBe(hash);
 

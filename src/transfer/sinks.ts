@@ -39,3 +39,65 @@ export class MemorySink implements Sink {
     return Promise.resolve();
   }
 }
+
+/**
+ * Writes blocks straight into a file the recipient chose (File System Access API).
+ * Chrome writes to a temporary file and only puts it in place on close(), so an
+ * aborted transfer leaves nothing behind.
+ */
+export class DiskSink implements Sink {
+  private readonly writable: FileSystemWritableFileStream;
+  private readonly name: string;
+
+  constructor(writable: FileSystemWritableFileStream, name: string) {
+    this.writable = writable;
+    this.name = name;
+  }
+
+  write(block: Uint8Array<ArrayBuffer>): Promise<void> {
+    return this.writable.write(block);
+  }
+
+  async close(): Promise<SinkResult> {
+    await this.writable.close();
+    return { kind: "file", name: this.name };
+  }
+
+  async abort(): Promise<void> {
+    try {
+      await this.writable.abort();
+    } catch {
+      // already closed or aborted
+    }
+  }
+}
+
+type SaveFilePicker = (options: { suggestedName?: string }) => Promise<FileSystemFileHandle>;
+
+/** The save dialog, where the browser has one (Chrome and Edge on desktop). */
+function saveFilePicker(): SaveFilePicker | null {
+  const picker = (window as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  return typeof picker === "function" ? picker.bind(window) : null;
+}
+
+export function canSaveToDisk(): boolean {
+  return saveFilePicker() !== null;
+}
+
+/**
+ * Asks where to save the file and opens it for writing. Call it straight from the
+ * click that asked to receive: the browser only opens the dialog in response to one.
+ * Resolves with null if the recipient closed the dialog without choosing.
+ */
+export async function chooseDiskSink(suggestedName: string): Promise<Sink | null> {
+  const picker = saveFilePicker();
+  if (picker === null) throw new Error("this browser cannot save to disk directly");
+  let handle: FileSystemFileHandle;
+  try {
+    handle = await picker({ suggestedName });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return null;
+    throw error;
+  }
+  return new DiskSink(await handle.createWritable(), handle.name);
+}

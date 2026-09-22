@@ -2,7 +2,7 @@
 // The sender is always the offerer, so negotiation never collides.
 
 import type { IceServer, SignalData } from "../../shared/signal-protocol.ts";
-import { candidateKind, emptyCounts, type ConnectionReport } from "./connection-report.ts";
+import { candidateKind, emptyCounts, publicAddress, type ConnectionReport } from "./connection-report.ts";
 
 export const CONNECT_TIMEOUT_MS = 20_000;
 const CHANNEL_LABEL = "didi";
@@ -44,6 +44,9 @@ export class PeerLink {
   private readonly startedAt = performance.now();
   private readonly localCandidates = emptyCounts();
   private readonly remoteCandidates = emptyCounts();
+  // Kept only to tell whether both sides share one; never reported or shown.
+  private readonly localPublicAddresses = new Set<string>();
+  private readonly remotePublicAddresses = new Set<string>();
   private readonly timeout: ReturnType<typeof setTimeout>;
   private readonly onPageHide = () => this.finish(new Error("page closed"));
 
@@ -63,6 +66,8 @@ export class PeerLink {
       if (candidate === null || candidate.candidate === "") return;
       const kind = candidateKind(candidate.candidate);
       if (kind !== null) this.localCandidates[kind]++;
+      const address = publicAddress(candidate.candidate);
+      if (address !== null) this.localPublicAddresses.add(address);
       callbacks.sendSignal({
         candidate: {
           candidate: candidate.candidate,
@@ -100,6 +105,8 @@ export class PeerLink {
     if ("candidate" in data) {
       const kind = candidateKind(data.candidate.candidate);
       if (kind !== null) this.remoteCandidates[kind]++;
+      const address = publicAddress(data.candidate.candidate);
+      if (address !== null) this.remotePublicAddresses.add(address);
     }
     this.enqueue(async () => {
       if ("description" in data) {
@@ -248,6 +255,7 @@ export class PeerLink {
       local: { ...this.localCandidates },
       remote: { ...this.remoteCandidates },
       pairs,
+      samePublicAddress: [...this.localPublicAddresses].some((address) => this.remotePublicAddresses.has(address)),
     };
   }
 
@@ -279,15 +287,28 @@ function routeFromStats(stats: RTCStatsReport): Route {
   }
   if (pair === undefined) return { kind: "unknown" };
 
-  const local = candidateType(stats, pair.localCandidateId);
-  const remote = candidateType(stats, pair.remoteCandidateId);
+  const local = candidateStats(stats, pair.localCandidateId);
+  const remote = candidateStats(stats, pair.remoteCandidateId);
   if (local === null || remote === null) return { kind: "unknown" };
-  if (local === "relay" || remote === "relay") return { kind: "relayed" };
-  return { kind: "direct", sameNetwork: local === "host" && remote === "host" };
+  if (local.type === "relay" || remote.type === "relay") return { kind: "relayed" };
+  // A remote address first seen in a connectivity check (prflx) is often a local
+  // address that simply arrived before its candidate message did.
+  const remoteIsLocal = remote.type === "host" || (remote.type === "prflx" && isPrivateAddress(remote.address));
+  return { kind: "direct", sameNetwork: local.type === "host" && remoteIsLocal };
 }
 
-function candidateType(stats: RTCStatsReport, id: string): CandidateType | null {
-  const candidate = stats.get(id) as { candidateType?: unknown } | undefined;
+function candidateStats(stats: RTCStatsReport, id: string): { type: CandidateType; address: string } | null {
+  const candidate = stats.get(id) as { candidateType?: unknown; address?: unknown } | undefined;
   const type = candidate?.candidateType;
-  return type === "host" || type === "srflx" || type === "prflx" || type === "relay" ? type : null;
+  if (type !== "host" && type !== "srflx" && type !== "prflx" && type !== "relay") return null;
+  return { type, address: typeof candidate?.address === "string" ? candidate.address : "" };
+}
+
+/** Addresses that only exist inside a local network. Carrier-grade NAT (100.64/10) is not one. */
+export function isPrivateAddress(address: string): boolean {
+  if (address.endsWith(".local")) return true; // an mDNS name for a host on this network
+  if (/^(10|127)\./.test(address) || /^192\.168\./.test(address) || /^169\.254\./.test(address)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) return true;
+  const lower = address.toLowerCase();
+  return lower === "::1" || /^f[cd][0-9a-f]{2}:/.test(lower) || /^fe[89ab][0-9a-f]:/.test(lower);
 }

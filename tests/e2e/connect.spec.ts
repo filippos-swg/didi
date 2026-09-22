@@ -106,7 +106,7 @@ test("a connection that can't be made explains itself on both sides", async ({ b
       RTCPeerConnection.prototype.addIceCandidate = () => Promise.resolve();
     });
   const { sender, link } = await startSending(browser, smallFile, blockAddresses);
-  const recipient = await openAsRecipient(browser, link, blockAddresses);
+  const recipient = await openAsRecipient(browser, link, { onPage: blockAddresses });
 
   await expect(recipient.getByRole("alert")).toHaveText("Couldn’t connect directly to the sender.", { timeout: 30_000 });
   // No STUN in tests, so neither browser has a public address; the explanation says so.

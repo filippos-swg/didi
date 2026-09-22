@@ -9,7 +9,7 @@ import { connectSignal, type SignalConnection } from "../net/signal-client.ts";
 import { Store } from "../store.ts";
 import { TransferError } from "../transfer/protocol.ts";
 import { FileReceiver } from "../transfer/receive-file.ts";
-import { MemorySink, type SinkResult } from "../transfer/sinks.ts";
+import { MemorySink, canSaveToDisk, chooseDiskSink, type Sink, type SinkResult } from "../transfer/sinks.ts";
 import { SpeedMeter } from "../transfer/speed.ts";
 import { initialReceiverState, receiverReducer, type ReceiverError, type ReceiverEvent, type ReceiverState } from "./receiver-state.ts";
 
@@ -43,24 +43,51 @@ export class ReceiverSession {
     if (this.store.get() !== before) void this.join();
   }
 
-  /** The recipient chose to receive the file on offer. */
+  /**
+   * The recipient chose to receive the file on offer. Call it straight from the
+   * click: where the browser can save to disk, this opens the save dialog, and
+   * browsers only allow that in response to a click.
+   */
   receive(): void {
     const state = this.store.get();
     const attempt = this.attempt;
     const transfer = attempt?.transfer;
     if (state.phase !== "ready" || attempt === null || transfer === null || transfer === undefined) return;
 
+    if (!canSaveToDisk()) {
+      this.startReceiving(attempt, transfer, new MemorySink(state.file.type));
+      return;
+    }
+    this.store.dispatch({ type: "choosing" });
+    chooseDiskSink(state.file.name).then(
+      (sink) => {
+        if (this.attempt !== attempt || this.store.get().phase !== "choosing") {
+          void sink?.abort();
+          return;
+        }
+        if (sink === null) this.store.dispatch({ type: "choice-cancelled" });
+        else this.startReceiving(attempt, transfer, sink);
+      },
+      (error: unknown) => {
+        // The browser refused the dialog or the file. Receiving into memory still works.
+        console.warn("didi: saving to disk is unavailable, receiving into memory instead", error);
+        if (this.attempt === attempt && this.store.get().phase === "choosing") {
+          this.startReceiving(attempt, transfer, new MemorySink(state.file.type));
+        }
+      },
+    );
+  }
+
+  private startReceiving(attempt: Attempt, transfer: FileReceiver, sink: Sink): void {
     const meter = new SpeedMeter();
     this.store.dispatch({ type: "accepted" });
     transfer
-      .accept(new MemorySink(state.file.type), (received) => {
+      .accept(sink, (received) => {
         if (meter.add(received)) this.store.dispatch({ type: "progress", received, bytesPerSecond: meter.bytesPerSecond() });
       })
       .then(
         (result) => this.complete(attempt, result),
-        (error: unknown) => {
-          if (this.attempt === attempt) this.fail(errorFor(error));
-        },
+        () => {}, // reported through transfer.failed
       );
   }
 
@@ -133,8 +160,8 @@ export class ReceiverSession {
       sendSignal: (data) => this.signal?.send({ type: "signal", data }),
       onFailure: (reason, wasConnected, report) => {
         if (this.attempt !== attempt) return;
-        // A running transfer knows more (the sender may have said why), so it reports.
-        if (attempt.transfer?.receiving === true) attempt.transfer.connectionLost();
+        // Once the channel is open, the transfer knows more (the sender may have said why), so it reports.
+        if (attempt.transfer !== null) attempt.transfer.connectionLost();
         else this.fail(wasConnected ? "connection-lost" : reason === "closed" ? "sender-left" : "connect-failed", report);
       },
     });
@@ -144,6 +171,9 @@ export class ReceiverSession {
       async (channel) => {
         const transfer = new FileReceiver(channel);
         attempt.transfer = transfer;
+        void transfer.failed.then((error) => {
+          if (this.attempt === attempt) this.fail(errorFor(error));
+        });
         try {
           const [file, route] = await Promise.all([transfer.meta, peer.route()]);
           if (this.attempt === attempt) this.store.dispatch({ type: "offered", file, route });

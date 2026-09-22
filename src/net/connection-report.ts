@@ -15,6 +15,8 @@ export interface ConnectionReport {
   remote: CandidateCounts;
   /** Address pairs the browser tested, or null if it would not say. */
   pairs: { tried: number; succeeded: number; failed: number } | null;
+  /** Both browsers reached the internet from the same public address: they are on one network. */
+  samePublicAddress: boolean;
 }
 
 export function emptyCounts(): CandidateCounts {
@@ -25,6 +27,12 @@ export function emptyCounts(): CandidateCounts {
 export function candidateKind(candidate: string): CandidateKind | null {
   const match = / typ (host|srflx|prflx|relay)(?: |$)/.exec(candidate);
   return match === null ? null : (match[1] as CandidateKind);
+}
+
+/** The public address in a server-reflexive candidate line, or null for any other kind. */
+export function publicAddress(candidate: string): string | null {
+  if (candidateKind(candidate) !== "srflx") return null;
+  return candidate.split(" ")[4] ?? null; // candidate:<foundation> <component> <protocol> <priority> <address> <port> typ …
 }
 
 function total(counts: CandidateCounts): number {
@@ -50,6 +58,9 @@ export function explain(report: ConnectionReport, other: "sender" | "recipient")
   }
   if (publicCount(report.remote) === 0 && report.remote.relay === 0) {
     return `${theirs} couldn’t find its public internet address. Their network may block the traffic direct connections need (UDP).`;
+  }
+  if (report.samePublicAddress) {
+    return `You and the ${other} seem to be on the same network, but your browsers couldn’t find each other on it. Some Wi-Fi networks block the local discovery browsers use. Try again, or connect one of you to another network, such as a phone hotspot.`;
   }
   return "Both browsers found their public addresses, but no path between them worked. A firewall or strict router on one side is blocking direct connections. Only a relay server (TURN) would get through, and didi v0.1 doesn’t use one.";
 }

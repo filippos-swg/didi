@@ -24,7 +24,7 @@ The 2 GB ceiling is a **product constraint for v0.1**, not an architectural assu
 - [x] Recipient opens the URL and connects to the sender.
 - [x] Recipient explicitly starts receiving.
 - [x] File bytes travel over a WebRTC DataChannel rather than through didi storage.
-- [ ] Sender and recipient see connection state, progress and speed.
+- [x] Sender and recipient see connection state, progress and speed.
 - [x] Transfer uses bounded chunks/backpressure rather than loading the whole file into memory.
 - [x] Received file can be verified as intact.
 - [ ] Sender-offline and interrupted-transfer states fail clearly.

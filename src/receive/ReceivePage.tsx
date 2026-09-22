@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { FileMeta } from "../transfer/protocol.ts";
+import { canSaveToDisk } from "../transfer/sinks.ts";
 import { ConnectionDetails } from "../ui/ConnectionDetails.tsx";
 import { FileSummary } from "../ui/FileSummary.tsx";
 import { RouteLabel } from "../ui/RouteLabel.tsx";
@@ -30,10 +31,21 @@ function ReceiveBody({ state, session }: { state: ReceiverState; session: Receiv
         <>
           <FileSummary file={state.file} />
           <RouteLabel route={state.route} />
-          <p className="hint">The file comes straight from the sender’s browser. Keep this page open until it finishes.</p>
+          <p className="hint">
+            The file comes straight from the sender’s browser. {canSaveToDisk() ? "You’ll choose where to save it. " : ""}Keep this page open until
+            it finishes.
+          </p>
           <button type="button" onClick={() => session.receive()}>
             Receive file
           </button>
+        </>
+      );
+    case "choosing":
+      return (
+        <>
+          <FileSummary file={state.file} />
+          <RouteLabel route={state.route} />
+          <p className="status">Choose where to save the file…</p>
         </>
       );
     case "receiving":
@@ -53,7 +65,7 @@ function ReceiveBody({ state, session }: { state: ReceiverState; session: Receiv
           <FileSummary file={state.file} />
           <p className="success">Received. Your copy matches the sender’s.</p>
           <RouteLabel route={state.route} />
-          {state.result.kind === "blob" ? <SaveButton blob={state.result.blob} file={state.file} /> : <p>Saved as {state.result.name}.</p>}
+          {state.result.kind === "blob" ? <SaveButton blob={state.result.blob} file={state.file} /> : <p className="saved">Saved as {state.result.name}.</p>}
         </>
       );
     case "unavailable":

@@ -58,7 +58,7 @@ The ICE server list is delivered by the signalling server when a browser hosts o
 Once connected, each side reads the selected ICE candidate pair from `RTCPeerConnection.getStats()` and labels the connection:
 
 - **relayed** if either candidate is a TURN relay
-- **direct** otherwise
+- **direct** otherwise, and **same network** when both addresses are local. A remote address first seen in a connectivity check (peer-reflexive) counts as local if it is a private address: on a local network it often arrives before its candidate message does.
 
 A connection that cannot be established within 20 seconds fails with a clear "couldn't connect directly" error. v0.1 has no relay to fall back on.
 
@@ -67,6 +67,16 @@ Noticing that the other side has gone:
 - **Page closed or navigated away:** each page closes its connection on `pagehide`. When the connection is idle, the other side sees the DataChannel close within milliseconds. Mid-transfer, the goodbye does not reliably get out, and the crash path below applies.
 - **Crash or lost network:** nothing is sent. Once the signalling server reports the other page's socket closed *and* ICE reports `disconnected` (about 5 seconds in Chrome), the connection is treated as lost. Neither signal on its own is enough: signalling can drop while the direct connection lives, and `disconnected` can recover.
 - **Fallback:** ICE `failed`, about 15 seconds in Chrome.
+
+When a connection never opens, both sides show the likely cause and a collapsible connection report (`src/net/connection-report.ts`). The report holds counts only, never addresses:
+
+- which kinds of address this browser found: on its own network, public, relay
+- which kinds arrived from the other browser
+- how many address pairs were tried, and how many worked
+- how the attempt ended
+- whether both browsers share a public address
+
+The shared-address check tells "same network, but local discovery (mDNS) failed" apart from "a firewall blocks direct connections, only TURN would help". The addresses used for it are compared in memory and never recorded.
 
 ## Transfer protocol
 
@@ -122,7 +132,14 @@ The receiver writes verified blocks to a sink:
 
 A disk-backed sink using the Origin Private File System is the planned fallback if the memory sink fails near 2 GB.
 
-Status: every browser currently uses the memory sink. The disk sink for Chrome and Edge is the next milestone (M4).
+Status: Chrome and Edge use the disk sink. A native save dialog opens when the recipient clicks Receive, so it has to be opened straight from that click. Other browsers use the memory sink.
+
+Details:
+
+- **Closing the dialog:** returns to the Receive button, and nothing is sent.
+- **Dialog or file refused:** if the browser refuses the dialog or the file, the transfer falls back to the memory sink.
+- **Nothing half-written:** Chrome writes to a temporary file and only puts it in place when the file is closed. An aborted transfer leaves nothing behind.
+- **Testing:** the automated tests replace the native dialog with a stand-in that writes into the page's private storage (OPFS), then read the file back and compare its SHA-256 with the original.
 
 ## Security and privacy language
 

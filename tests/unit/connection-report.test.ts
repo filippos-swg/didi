@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { candidateKind, describeCounts, emptyCounts, explain, type ConnectionReport } from "../../src/net/connection-report.ts";
+import { candidateKind, describeCounts, emptyCounts, explain, publicAddress, type ConnectionReport } from "../../src/net/connection-report.ts";
 
 test("candidate types are read from candidate lines", () => {
   assert.equal(candidateKind("candidate:1 1 udp 2122260223 192.0.2.1 54321 typ host generation 0"), "host");
@@ -10,8 +10,17 @@ test("candidate types are read from candidate lines", () => {
   assert.equal(candidateKind("garbage"), null);
 });
 
-function report(local: Partial<ReturnType<typeof emptyCounts>>, remote: Partial<ReturnType<typeof emptyCounts>>): ConnectionReport {
-  return { ending: "timeout", seconds: 20, local: { ...emptyCounts(), ...local }, remote: { ...emptyCounts(), ...remote }, pairs: null };
+test("only server-reflexive candidates yield a public address", () => {
+  assert.equal(publicAddress("candidate:2 1 udp 1686052607 203.0.113.9 61000 typ srflx raddr 192.0.2.1 rport 54321"), "203.0.113.9");
+  assert.equal(publicAddress("candidate:1 1 udp 2122260223 192.0.2.1 54321 typ host generation 0"), null);
+});
+
+function report(
+  local: Partial<ReturnType<typeof emptyCounts>>,
+  remote: Partial<ReturnType<typeof emptyCounts>>,
+  samePublicAddress = false,
+): ConnectionReport {
+  return { ending: "timeout", seconds: 20, local: { ...emptyCounts(), ...local }, remote: { ...emptyCounts(), ...remote }, pairs: null, samePublicAddress };
 }
 
 test("the explanation names the most likely cause", () => {
@@ -19,8 +28,20 @@ test("the explanation names the most likely cause", () => {
   assert.match(explain(report({ host: 2 }, { host: 1, srflx: 1 }), "sender"), /^Your browser couldn’t find its public internet address/);
   assert.match(explain(report({ host: 2, srflx: 1 }, { host: 3 }), "recipient"), /^The recipient’s browser couldn’t find its public internet address/);
   assert.match(explain(report({ host: 2, srflx: 1 }, { host: 1, srflx: 1 }), "sender"), /Only a relay server \(TURN\) would get through/);
+  // Peter's first attempt: same Wi-Fi, so the same public address, and local discovery failed.
+  assert.match(explain(report({ host: 1, srflx: 1 }, { host: 1, srflx: 1 }, true), "sender"), /^You and the sender seem to be on the same network/);
 });
 
 test("counts read as plain words", () => {
   assert.equal(describeCounts({ host: 2, srflx: 1, prflx: 1, relay: 0 }), "2 on its own network, 2 public, 0 relay");
+});
+
+test("private addresses are told apart from public ones", async () => {
+  const { isPrivateAddress } = await import("../../src/net/peer.ts");
+  for (const address of ["10.0.0.4", "192.168.30.117", "172.20.1.1", "169.254.3.3", "127.0.0.1", "fd12:3456::1", "fe80::1c", "::1", "4f1c-abc.local"]) {
+    assert.ok(isPrivateAddress(address), address);
+  }
+  for (const address of ["212.247.90.82", "172.32.0.1", "100.64.0.1", "8.8.8.8", "2001:db8::1", ""]) {
+    assert.ok(!isPrivateAddress(address), address);
+  }
 });

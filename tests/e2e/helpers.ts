@@ -14,13 +14,42 @@ export async function startSending(browser: Browser, file: FileInput, onPage?: (
   return { sender, link: await linkBox.inputValue() };
 }
 
+export interface RecipientOptions {
+  onPage?: (page: Page) => void;
+  /**
+   * "memory": behave like Firefox and Safari, which cannot save to disk directly.
+   * "disk": save to disk, with a stand-in for Chrome's native save dialog (which
+   * tests cannot click) that writes into the page's private storage (OPFS).
+   */
+  save?: "memory" | "disk";
+}
+
 /** Opens a link in a fresh browser context, as a different person would. */
-export async function openAsRecipient(browser: Browser, link: string, onPage?: (page: Page) => void): Promise<Page> {
+export async function openAsRecipient(browser: Browser, link: string, options: RecipientOptions = {}): Promise<Page> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  onPage?.(page);
+  options.onPage?.(page);
+  if ((options.save ?? "memory") === "memory") {
+    await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined }));
+  } else {
+    await page.addInitScript(() =>
+      Object.defineProperty(window, "showSaveFilePicker", {
+        value: async ({ suggestedName }: { suggestedName: string }) =>
+          (await navigator.storage.getDirectory()).getFileHandle(suggestedName, { create: true }),
+      }),
+    );
+  }
   await page.goto(link);
   return page;
+}
+
+/** Size and SHA-256 of a file the "disk" stand-in saved. */
+export function savedFile(page: Page, name: string): Promise<{ size: number; sha256: string }> {
+  return page.evaluate(async (fileName) => {
+    const file = await (await (await navigator.storage.getDirectory()).getFileHandle(fileName)).getFile();
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+    return { size: file.size, sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") };
+  }, name);
 }
 
 export function phase(page: Page) {

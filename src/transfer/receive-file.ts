@@ -21,10 +21,13 @@ type Incoming = string | ArrayBuffer;
 export class FileReceiver {
   /** Resolves with the sender's description of the file. */
   readonly meta: Promise<FileMeta>;
+  /** Resolves if the transfer fails at any stage, before or after accept(). */
+  readonly failed: Promise<TransferError>;
 
   private readonly channel: Channel;
   private resolveMeta!: (meta: FileMeta) => void;
   private rejectMeta!: (error: TransferError) => void;
+  private resolveFailed!: (error: TransferError) => void;
   private file: FileMeta | null = null;
   private sink: Sink | null = null;
   private onProgress: (committed: number) => void = () => {};
@@ -47,6 +50,9 @@ export class FileReceiver {
       this.rejectMeta = reject;
     });
     this.meta.catch(() => {});
+    this.failed = new Promise((resolve) => {
+      this.resolveFailed = resolve;
+    });
     channel.addEventListener("message", this.onMessage);
     channel.addEventListener("close", this.onClose);
   }
@@ -67,11 +73,6 @@ export class FileReceiver {
     this.startBlock();
     this.send({ t: "accept" });
     return done;
-  }
-
-  /** True between accept() and the transfer ending. While true, this object reports how the transfer ended. */
-  get receiving(): boolean {
-    return this.sink !== null && !this.finished;
   }
 
   /**
@@ -198,6 +199,7 @@ export class FileReceiver {
     this.detach();
     this.rejectMeta(error);
     this.rejectDone?.(error);
+    this.resolveFailed(error);
     void this.sink?.abort();
   }
 
