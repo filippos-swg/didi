@@ -118,6 +118,7 @@ Real transfers between separate machines, as opposed to the automated tests.
 | Date | Sender | Recipient | Network | File | Result |
 |---|---|---|---|---|---|
 | 2026-09-22 | Chrome, macOS | Firefox, another machine | same Wi-Fi | 8.53 MB video | Direct, same network; verified intact. An earlier attempt on the same network failed to connect, cause unknown (before connection reports existed). |
+| 2026-09-22 | Chrome | a Chromium browser | not recorded | not recorded | The native save dialog opened on Receive and saving to disk worked (reported by hand; details not recorded). |
 
 Still to test: two separate internet connections, Safari, Edge, and files near 2 GB.
 
