@@ -60,7 +60,13 @@ Once connected, each side reads the selected ICE candidate pair from `RTCPeerCon
 - **relayed** if either candidate is a TURN relay
 - **direct** otherwise
 
-A connection that cannot be established within the timeout fails with a clear "couldn't connect directly" error. v0.1 has no relay to fall back on.
+A connection that cannot be established within 20 seconds fails with a clear "couldn't connect directly" error. v0.1 has no relay to fall back on.
+
+Noticing that the other side has gone:
+
+- **Page closed or navigated away:** each page closes its connection on `pagehide`. The other side sees the DataChannel close within milliseconds.
+- **Crash or lost network:** nothing is sent. Once the signalling server reports the other page's socket closed *and* ICE reports `disconnected` (about 5 seconds in Chrome), the connection is treated as lost. Neither signal on its own is enough: signalling can drop while the direct connection lives, and `disconnected` can recover.
+- **Fallback:** ICE `failed`, about 15 seconds in Chrome.
 
 ## Transfer protocol
 
