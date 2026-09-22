@@ -161,6 +161,31 @@ test("a transfer carries on when the sender loses the server mid-transfer", asyn
   expect(await sha256OfFile(await download.path())).toBe(hash);
 });
 
+test("a recipient who tries again before their 'stop' reaches the sender still gets connected", async ({ browser }, testInfo) => {
+  test.setTimeout(120_000);
+  const path = testInfo.outputPath("big.bin");
+  await randomFile(path, 200 * MB);
+  const { link } = await startSending(browser, path);
+  const signalling = signallingSwitch();
+  const first = await openAsRecipient(browser, link, { onPage: signalling.attach });
+  await first.getByRole("button", { name: "Receive file" }).click();
+  await expect(phase(first)).toHaveAttribute("data-phase", "receiving");
+
+  // The first recipient's server connection drops while its direct connection
+  // carries on, so the server lets a second attempt in while the sender is busy.
+  await signalling.cut();
+  const second = await openAsRecipient(browser, link);
+  // Until the server has noticed the first recipient's socket close, it says the link is busy.
+  await expect(async () => {
+    if ((await phase(second).getAttribute("data-phase")) === "unavailable") await second.getByRole("button", { name: "Try again" }).click();
+    await expect(phase(second)).toHaveAttribute("data-phase", "connecting", { timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+
+  // Once the first attempt ends, the sender turns to the one waiting.
+  await first.getByRole("button", { name: "Stop receiving" }).click();
+  await expect(phase(second)).toHaveAttribute("data-phase", "ready", { timeout: 15_000 });
+});
+
 test("a recipient who can't reach didi's server is told so", async ({ browser }) => {
   const { link } = await startSending(browser, smallFile);
   const signalling = signallingSwitch();
@@ -170,7 +195,8 @@ test("a recipient who can't reach didi's server is told so", async ({ browser })
   await expect(recipient.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
-test("leaving mid-transfer asks first, on both sides", async ({ browser }, testInfo) => {
+test("leaving mid-transfer asks first, on both sides", async ({ browser, browserName }, testInfo) => {
+  test.skip(browserName === "webkit", "Playwright's WebKit does not reliably raise beforeunload prompts; the same page code is covered in Chromium");
   test.setTimeout(120_000);
   const path = testInfo.outputPath("big.bin");
   await randomFile(path, 300 * MB);

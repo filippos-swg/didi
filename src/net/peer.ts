@@ -166,7 +166,7 @@ export class PeerLink {
    * Ends the connection after everything already queued on the DataChannel has
    * been delivered, so a final message (an abort, or "verified") is not lost.
    */
-  closeGracefully(timeoutMs = 5000): void {
+  closeGracefully(timeoutMs = 10_000): void {
     if (this.finished) return;
     const channel = this.channel;
     if (channel === null || channel.readyState !== "open") {
@@ -291,10 +291,41 @@ function routeFromStats(stats: RTCStatsReport): Route {
   const remote = candidateStats(stats, pair.remoteCandidateId);
   if (local === null || remote === null) return { kind: "unknown" };
   if (local.type === "relay" || remote.type === "relay") return { kind: "relayed" };
+
   // A remote address first seen in a connectivity check (prflx) is often a local
-  // address that simply arrived before its candidate message did.
-  const remoteIsLocal = remote.type === "host" || (remote.type === "prflx" && isPrivateAddress(remote.address));
+  // address that simply arrived before its candidate message did. It is on this
+  // network if it is a private address, or an IPv6 address in one of our subnets.
+  const ownPrefixes = new Set<string>();
+  stats.forEach((report: RTCStats) => {
+    const candidate = report as { candidateType?: unknown; address?: unknown };
+    if (report.type === "local-candidate" && candidate.candidateType === "host" && typeof candidate.address === "string") {
+      const prefix = ipv6Prefix64(candidate.address);
+      if (prefix !== null) ownPrefixes.add(prefix);
+    }
+  });
+  const remotePrefix = ipv6Prefix64(remote.address);
+  const remoteIsLocal =
+    remote.type === "host" ||
+    (remote.type === "prflx" && (isPrivateAddress(remote.address) || (remotePrefix !== null && ownPrefixes.has(remotePrefix))));
   return { kind: "direct", sameNetwork: local.type === "host" && remoteIsLocal };
+}
+
+/** The first 64 bits of an IPv6 address (its subnet), normalised; null for anything else. */
+export function ipv6Prefix64(address: string): string | null {
+  const bare = address.replace(/%.*$/, ""); // drop a zone such as %en0
+  if (!bare.includes(":") || bare.includes(".")) return null;
+  const halves = bare.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] === "" || halves[0] === undefined ? [] : halves[0].split(":");
+  const tail = halves.length === 2 && halves[1] !== "" && halves[1] !== undefined ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array<string>(fill).fill("0"), ...tail];
+  if (groups.length !== 8 || !groups.every((group) => /^[0-9a-fA-F]{1,4}$/.test(group))) return null;
+  return groups
+    .slice(0, 4)
+    .map((group) => parseInt(group, 16).toString(16))
+    .join(":");
 }
 
 function candidateStats(stats: RTCStatsReport, id: string): { type: CandidateType; address: string } | null {

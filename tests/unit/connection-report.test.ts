@@ -45,3 +45,15 @@ test("private addresses are told apart from public ones", async () => {
     assert.ok(!isPrivateAddress(address), address);
   }
 });
+
+test("IPv6 subnets are compared on their first 64 bits", async () => {
+  const { ipv6Prefix64 } = await import("../../src/net/peer.ts");
+  assert.equal(ipv6Prefix64("2001:db8:85a3:12::8a2e:370:7334"), "2001:db8:85a3:12");
+  assert.equal(ipv6Prefix64("2001:0db8:85a3:0012:ffff::1"), "2001:db8:85a3:12");
+  assert.equal(ipv6Prefix64("fe80::1c%en0"), "fe80:0:0:0");
+  assert.equal(ipv6Prefix64("::1"), "0:0:0:0");
+  assert.equal(ipv6Prefix64("192.168.1.2"), null);
+  assert.equal(ipv6Prefix64("::ffff:192.168.1.2"), null);
+  assert.equal(ipv6Prefix64("1::2::3"), null);
+  assert.equal(ipv6Prefix64("abc.local"), null);
+});

@@ -102,8 +102,8 @@ The message sequence and limits live in `src/transfer/protocol.ts`:
 |---|---|
 | block (hash, write, acknowledge) | 1 MiB |
 | chunk | 64 KiB, or the negotiated SCTP maximum if smaller |
-| pause sending above `bufferedAmount` | 8 MiB (Chrome fails `send()` past 16 MiB) |
-| resume below | 2 MiB |
+| pause sending above `bufferedAmount` | 1 MiB (kept small: control messages wait behind it; Chrome fails `send()` past 16 MiB) |
+| resume below | 256 KiB |
 | unacknowledged window | 16 MiB |
 
 Measured with two tabs of one Chrome on one machine (100 MB):
@@ -112,6 +112,46 @@ Measured with two tabs of one Chrome on one machine (100 MB):
 - Instrumentation shows the time is spent waiting for the DataChannel to drain. Reading, hashing and the acknowledgement window never limit it.
 - Changing the buffer thresholds (1–16 MiB) or the chunk size (64 or 256 KiB) made no difference.
 - Throughput between two machines on real networks is still to be measured.
+
+## Browser engines and testing
+
+| Engine | Automated tests | Notes |
+|---|---|---|
+| Chromium (Chrome, Edge) | the full suite, without STUN (local addresses only) | Saves to disk. Edge itself has not been tested; it is not installed on the development Mac. |
+| WebKit (Safari) | the full suite apart from Chrome-only cases, with public STUN; Chromium ↔ WebKit in both directions | Like Safari, WebKit hides its local addresses unless the page is using the camera or microphone. So it only connects once it has learned its public address from STUN, and then reaches peers on the same network through the address the other side observes (peer-reflexive). Real Safari is tested by hand. |
+| Gecko (Firefox) | none | Playwright's Firefox gathers no ICE candidates at all, even for two connections inside one page with no didi code involved. Tried headless and headed, and every relevant preference. Real Firefox works: see Field tests. |
+
+Test settings that exist only because of the harness:
+
+- Chromium tests turn off mDNS address hiding. CI containers cannot resolve mDNS names.
+- The disk path is exercised through a stand-in for Chrome's save dialog, which tests cannot click. It writes into the page's private storage (OPFS).
+- WebKit tests get a longer timeout and one retry, since waiting for public STUN is occasionally slow. Playwright reports a retried test as flaky, so it stays visible.
+- WebKit's "leave page?" prompt is not tested. Playwright's WebKit does not raise it reliably, and the same code is covered in Chromium.
+- Running many large transfers in parallel on one machine starves WebKit of CPU until its connection checks time out. CI runs one test at a time.
+
+## Transfers near the limit
+
+`npm run test:scale` sends 500 MB and exactly 2 GiB between engines. The recipient uses an ordinary on-disk browser profile: Playwright's usual contexts are private windows, which keep page storage and large Blobs in memory with a small quota. Each saved copy is checked against the source block by block (disk) or by whole-file SHA-256 (download).
+
+These tests run on demand only, never in CI. Measured 2026-09-22 on the development Mac (Apple silicon laptop), both browsers on the same machine. Memory is the resident memory of the browser's processes, summed; where both sides run in Chromium, it covers both.
+
+| Sender → recipient | Saved to | Size | Time | Speed | Memory before → peak |
+|---|---|---|---|---|---|
+| Chromium → Chromium | disk | 500 MB | 16 s | 32 MB/s | 611 → 754 MB (both sides) |
+| Chromium → Chromium | disk | 2 GiB | 87 s | 24 MB/s | 613 → 745 MB (both sides) |
+| Chromium → Chromium | memory | 2 GiB | 147 s | 14 MB/s | 612 → 885 MB (both sides) |
+| Chromium → WebKit | memory | 500 MB | 38 s | 13 MB/s | WebKit 364 → 989 MB |
+| Chromium → WebKit | memory | 2 GiB | 153 s | 13 MB/s | WebKit 364 → 1,613 MB |
+| WebKit → Chromium | disk | 2 GiB | 140 s | 15 MB/s | WebKit (sending) 368 → 504 MB |
+
+Every copy arrived intact. What the numbers show:
+
+- **Disk path:** memory stays flat at 2 GiB, as designed.
+- **Chromium memory path:** stays moderate, because Chrome moves large Blobs to disk in a normal profile.
+- **WebKit memory path:** grows with the file, about 1.25 GB extra at 2 GiB, but it held.
+- **Sending:** memory stays flat in both engines.
+
+Real Firefox and real Safari at 2 GB are still to be tried by hand. The disk-backed fallback (OPFS) for them waits on that result.
 
 ## Failure handling
 
@@ -135,6 +175,8 @@ Every case below has an automated browser test (`tests/e2e/`), except where note
 | Recipient's disk full or refuses the write | "The recipient's browser couldn't save the file"; the link still works | "Your browser couldn't save the file. Your disk may be full" |
 | A block or the whole file doesn't match | "The recipient's copy didn't match yours" | "The received data didn't match the sender's copy" (unit-tested only) |
 | Leaving the page mid-transfer | the browser asks first | the browser asks first |
+| A second visitor arrives while an attempt is still ending (for example, the recipient stopped and tried again at once) | connects to them as soon as the previous attempt has ended | connects normally |
+| A second visitor arrives while the first recipient's transfer is healthy but its server connection dropped | keeps the first transfer | waits, then "Couldn't connect directly" after 20 s (misleading; not handled in v0.1) |
 | Network lost without the page closing | detected when ICE gives up (about 15 s in Chrome), shown as a stall before that (not automated: it needs a real network to drop) | same |
 
 ## Field tests

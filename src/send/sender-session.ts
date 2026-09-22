@@ -40,6 +40,10 @@ export class SenderSession {
   private attempt: Attempt | null = null;
   private reconnectDelay = RECONNECT_MIN_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The last message was a reclaim of this session while an attempt was running. */
+  private reclaimedDuringAttempt = false;
+  /** A new recipient arrived while the last attempt was still ending; connect once it has. */
+  private recipientWaiting = false;
 
   /** True while a link exists that closing the page would break. */
   get sharing(): boolean {
@@ -111,17 +115,36 @@ export class SenderSession {
   }
 
   private onMessage(message: ServerMessage): void {
+    // The server re-announces an attached recipient straight after a reclaim, so
+    // "peer-joined" right after "hosting" may be the recipient we are already connected to.
+    const afterReclaim = this.reclaimedDuringAttempt;
+    this.reclaimedDuringAttempt = false;
     switch (message.type) {
       case "hosting":
         this.reconnectDelay = RECONNECT_MIN_MS;
         this.iceServers = message.iceServers;
+        this.reclaimedDuringAttempt = this.attempt !== null;
         this.store.dispatch({ type: "hosting", link: `${location.origin}/r#${message.sessionId}` });
         return;
-      case "peer-joined":
-        // After a reclaim the server re-announces a recipient we may already be connected to.
-        if (this.attempt === null) this.connectToRecipient();
+      case "peer-joined": {
+        const attempt = this.attempt;
+        if (attempt === null) {
+          this.connectToRecipient();
+        } else if (afterReclaim && attempt.peer.isConnected) {
+          // the same recipient, still connected directly
+        } else if (!attempt.peer.isConnected) {
+          // The server admits one recipient at a time, so whoever we were negotiating with has gone.
+          this.endAttempt(attempt, "recipient-left");
+          this.connectToRecipient();
+        } else {
+          // Someone new, while the last attempt is still ending (for example, the
+          // recipient stopped and tried again before their "stop" reached us).
+          this.recipientWaiting = true;
+        }
         return;
+      }
       case "peer-left": {
+        this.recipientWaiting = false;
         const attempt = this.attempt;
         if (attempt === null) return;
         if (attempt.peer.isConnected) attempt.peer.otherPageLeftSignalling();
@@ -207,6 +230,10 @@ export class SenderSession {
     this.attempt = null;
     this.store.dispatch({ type: "peer-lost", notice, report });
     attempt.peer.closeGracefully(); // lets a final abort reach the recipient
+    if (this.recipientWaiting) {
+      this.recipientWaiting = false;
+      this.connectToRecipient();
+    }
   }
 
   private fail(error: SenderError): void {
@@ -224,6 +251,8 @@ export class SenderSession {
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.reconnectDelay = RECONNECT_MIN_MS;
+    this.reclaimedDuringAttempt = false;
+    this.recipientWaiting = false;
     this.attempt = null;
     this.signal = null;
     this.file = null;

@@ -3,12 +3,17 @@ import { expect, type Browser, type Page } from "@playwright/test";
 export type FileInput = string | { name: string; mimeType: string; buffer: Buffer };
 
 /** Opens the send page in a fresh browser context, chooses a file and returns the share link. */
+/**
+ * `baseURL` is only needed for browsers a test launches itself; the test
+ * runner's own browser already knows it.
+ */
 export async function startSending(
   browser: Browser,
   file: FileInput,
   onPage?: (page: Page) => void | Promise<void>,
+  baseURL?: string,
 ): Promise<{ sender: Page; link: string }> {
-  const context = await browser.newContext();
+  const context = await browser.newContext(baseURL === undefined ? {} : { baseURL });
   const sender = await context.newPage();
   await onPage?.(sender);
   await sender.goto("/");
@@ -33,7 +38,14 @@ export async function openAsRecipient(browser: Browser, link: string, options: R
   const context = await browser.newContext();
   const page = await context.newPage();
   await options.onPage?.(page);
-  if ((options.save ?? "memory") === "memory") {
+  await prepareRecipient(page, options.save ?? "memory");
+  await page.goto(link);
+  return page;
+}
+
+/** Sets up how a recipient page saves: see RecipientOptions.save. Call before loading the link. */
+export async function prepareRecipient(page: Page, save: "memory" | "disk"): Promise<void> {
+  if (save === "memory") {
     await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined }));
   } else {
     await page.addInitScript(() =>
@@ -43,8 +55,6 @@ export async function openAsRecipient(browser: Browser, link: string, options: R
       }),
     );
   }
-  await page.goto(link);
-  return page;
 }
 
 /** Size and SHA-256 of a file the "disk" stand-in saved. */

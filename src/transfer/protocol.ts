@@ -23,11 +23,17 @@ export const BLOCK_BYTES = 1024 * 1024;
 /** Largest binary message, further capped by the negotiated SCTP maximum. */
 export const MAX_CHUNK_BYTES = 64 * 1024;
 
-/** Stop sending while more than this is queued in the DataChannel. Chrome fails send() past 16 MiB. */
-export const BUFFER_HIGH_BYTES = 8 * 1024 * 1024;
+/**
+ * Stop sending while more than this is queued in the DataChannel. Kept small
+ * because control messages (a block hash, an abort) wait behind whatever is
+ * queued: at 1 MB/s, 1 MiB is a second. Throughput is unaffected, since the
+ * browser keeps the network busy as long as the queue never empties (measured:
+ * 1 MiB and 8 MiB performed the same). Chrome fails send() past 16 MiB.
+ */
+export const BUFFER_HIGH_BYTES = 1024 * 1024;
 
-/** Resume when the queue drains below this (bufferedamountlow). */
-export const BUFFER_LOW_BYTES = 2 * 1024 * 1024;
+/** Refill when the queue drains below this (bufferedamountlow). */
+export const BUFFER_LOW_BYTES = 256 * 1024;
 
 /** At most this many bytes sent but not yet committed by the recipient. */
 export const WINDOW_BYTES = 16 * 1024 * 1024;

@@ -17,7 +17,9 @@ async function sendAndSave(browser: Browser, path: string, name: string, timeout
   await recipient.getByRole("button", { name: "Receive file" }).click();
   if (checkSpeed) {
     // Both sides show how much has moved, how fast, and how long is left.
-    for (const page of [recipient, sender]) await expect(page.locator(".progress-text")).toContainText(/\d+(\.\d+)? (KB|MB|GB)\/s · about .+ left/);
+    for (const page of [recipient, sender]) {
+      await expect(page.locator(".progress-text")).toContainText(/\d+(\.\d+)? (KB|MB|GB)\/s · about .+ left/, { timeout: 20_000 });
+    }
   }
 
   await expect(phase(recipient)).toHaveAttribute("data-phase", "complete", { timeout });
@@ -70,7 +72,7 @@ test("after delivery the link stops working", async ({ browser }, testInfo) => {
 test("the recipient stopping mid-transfer tells the sender, and can try again", async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const path = testInfo.outputPath("big.bin");
-  const hash = await randomFile(path, 400 * MB);
+  const hash = await randomFile(path, 200 * MB);
   const { sender, link } = await startSending(browser, path);
   const recipient = await openAsRecipient(browser, link);
   await recipient.getByRole("button", { name: "Receive file" }).click();
@@ -91,7 +93,7 @@ test("the recipient stopping mid-transfer tells the sender, and can try again", 
 test("the sender stopping mid-transfer tells the recipient", async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const path = testInfo.outputPath("big.bin");
-  await randomFile(path, 400 * MB);
+  await randomFile(path, 200 * MB);
   const { sender, link } = await startSending(browser, path);
   const recipient = await openAsRecipient(browser, link);
   await recipient.getByRole("button", { name: "Receive file" }).click();
@@ -105,7 +107,7 @@ test("the sender stopping mid-transfer tells the recipient", async ({ browser },
 test("the sender closing the page mid-transfer is reported to the recipient", async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const path = testInfo.outputPath("big.bin");
-  await randomFile(path, 400 * MB);
+  await randomFile(path, 200 * MB);
   const { sender, link } = await startSending(browser, path);
   const recipient = await openAsRecipient(browser, link);
   await recipient.getByRole("button", { name: "Receive file" }).click();

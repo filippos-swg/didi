@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openAsRecipient, phase, smallFile, startSending } from "./helpers.ts";
 
-test("a recipient connects directly to the sender", async ({ browser }) => {
+test("a recipient connects directly to the sender", async ({ browser, browserName }) => {
   const { sender, link } = await startSending(browser, smallFile);
   await expect(phase(sender)).toHaveAttribute("data-phase", "waiting");
 
@@ -9,10 +9,13 @@ test("a recipient connects directly to the sender", async ({ browser }) => {
   await expect(phase(recipient)).toHaveAttribute("data-phase", "ready");
   await expect(phase(sender)).toHaveAttribute("data-phase", "connected");
 
-  // Two contexts on one machine connect over host candidates: direct, same network.
   await expect(recipient.locator(".route")).toHaveAttribute("data-route", "direct");
-  await expect(recipient.locator(".route")).toHaveText("Direct connection, same network");
-  await expect(sender.locator(".route")).toHaveText("Direct connection, same network");
+  await expect(sender.locator(".route")).toHaveAttribute("data-route", "direct");
+  if (browserName === "chromium") {
+    // Two Chrome contexts on one machine connect over their local addresses.
+    await expect(recipient.locator(".route")).toHaveText("Direct connection, same network");
+    await expect(sender.locator(".route")).toHaveText("Direct connection, same network");
+  }
 });
 
 test("an unknown link is reported as not active", async ({ page }) => {
@@ -98,7 +101,8 @@ test("when the sender page crashes, the recipient notices within seconds", async
   await expect(phase(recipient)).toHaveAttribute("data-phase", "failed", { timeout: 10_000 });
 });
 
-test("a connection that can't be made explains itself on both sides", async ({ browser }) => {
+test("a connection that can't be made explains itself on both sides", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "the expected explanation assumes no STUN, which only the Chromium tests run without");
   test.setTimeout(60_000);
   // Throw away every address the other browser sends, so no path can ever be found.
   const blockAddresses = (page: import("@playwright/test").Page) =>

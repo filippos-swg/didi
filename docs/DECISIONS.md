@@ -106,3 +106,17 @@ The root is not a whole-file `shasum -a 256` value. That would need an increment
 - Unit tests use Node's built-in `node:test`.
 - Node 24 runs the server's TypeScript directly (type stripping), so the server has no build step.
 - Package manager: npm.
+
+## 2026-09-22 — Findings from testing near the limit (M6)
+
+### No disk-backed fallback yet
+
+At exactly 2 GiB, the memory path held in Chromium and in WebKit (Safari's engine). WebKit grew by about 1.25 GB. The OPFS fallback agreed above is therefore not built. It is revisited once real Firefox and real Safari have received a 2 GB file by hand.
+
+### A smaller send queue
+
+The sender now pauses above 1 MiB queued (resuming below 256 KiB), down from 8 MiB and 2 MiB. Control messages wait behind the queue, and under load a sender's "stopped sharing" could arrive after the connection had already been closed. The recipient then saw "the connection dropped" instead of the real reason. Measured throughput did not change.
+
+### Firefox is tested by hand
+
+Playwright's Firefox cannot make WebRTC connections. Firefox stays in the supported set, because real Firefox works (field test, 2026-09-22), and it is checked by hand.

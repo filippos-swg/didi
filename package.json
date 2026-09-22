@@ -14,7 +14,8 @@
     "start": "node server/main.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "test": "node --test \"tests/unit/**/*.test.ts\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:scale": "playwright test --config playwright.scale.config.ts"
   },
   "dependencies": {
     "react": "^19.3.0",
