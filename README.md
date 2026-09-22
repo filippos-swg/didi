@@ -31,3 +31,22 @@ The 2 GB ceiling is a **product constraint for v0.1**, not an architectural assu
 - [ ] Core flow works in supported desktop browsers.
 
 See `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, and `docs/ROADMAP.md`.
+
+## Development
+
+Requires Node 24 or later.
+
+```bash
+npm install
+npm run dev          # http://localhost:8080 — web client and signalling in one process
+npm run typecheck
+npm test             # unit tests (node:test)
+npx playwright install chromium
+npm run test:e2e     # browser tests: builds, starts the server, drives two browsers
+```
+
+Production: `npm run build && npm start`. The server reads:
+
+- `PORT` (default 8080)
+- `DIDI_ICE_SERVERS`, a JSON array of `RTCIceServer` objects (default: public STUN)
+- `DIDI_ALLOWED_ORIGINS`, comma-separated origins allowed to open the signalling socket besides the server's own
